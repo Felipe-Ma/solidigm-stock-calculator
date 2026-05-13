@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Solidigm Stock Calculator</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero-card">
+        <div>
+          <p class="eyebrow">✨ Solidigm stock calculator</p>
+          <h1>Track 4-year LTI grants automatically.</h1>
+          <p class="hero-copy">
+            Add each stock grant once. The app saves your grants locally and builds the 16-quarter vesting schedule for a standard 4-year LTI plan.
+          </p>
+        </div>
+        <div class="hero-stats">
+          <div class="hero-stat">
+            <span id="grand-total">0</span>
+            <small>shares scheduled</small>
+          </div>
+          <div class="hero-stat">
+            <span id="total-value">$0</span>
+            <small>estimated value</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <div class="panel plan-panel">
+          <div class="panel-heading">
+            <span aria-hidden="true">📅</span>
+            <div>
+              <h2>Automatic LTI schedule</h2>
+              <p>No manual quarter-date list needed. Every grant uses the same 4-year plan.</p>
+            </div>
+          </div>
+          <label class="price-input-card">
+            Stock price
+            <span class="price-input-wrap">
+              <span aria-hidden="true">$</span>
+              <input id="stock-price" type="number" min="0" step="0.01" placeholder="0.00" />
+            </span>
+          </label>
+          <div class="plan-metric-grid">
+            <div class="plan-metric">
+              <strong>4 years</strong>
+              <span>Plan length</span>
+            </div>
+            <div class="plan-metric">
+              <strong>16</strong>
+              <span>Quarterly vests</span>
+            </div>
+            <div class="plan-metric">
+              <strong id="next-vest-value">$0</strong>
+              <span>Next vest value</span>
+            </div>
+          </div>
+          <p class="helper-text" id="database-status">Loading local database…</p>
+        </div>
+
+        <div class="panel grants-panel">
+          <div class="panel-heading split-heading">
+            <div>
+              <h2>Stock grants</h2>
+              <p>Enter the grant's total shares and first vest date. Changes are saved in your browser's local database.</p>
+            </div>
+            <button class="secondary-button" type="button" id="add-grant">＋ Add grant</button>
+          </div>
+
+          <div class="grant-list" id="grant-list"></div>
+        </div>
+      </section>
+
+      <section class="panel schedule-panel">
+        <div class="panel-heading split-heading">
+          <div>
+            <h2>Grant layout</h2>
+            <p>A compact table showing vest value, running totals, and the percentage remaining after each vest.</p>
+          </div>
+        </div>
+        <div class="schedule-grid" id="schedule-grid"></div>
+      </section>
+    </main>
+
+    <template id="grant-template">
+      <div class="grant-card">
+        <label>
+          Name
+          <input data-field="label" placeholder="Grant name" />
+        </label>
+        <label>
+          Shares
+          <input data-field="shares" type="number" min="0" placeholder="1000" />
+        </label>
+        <label>
+          First vest date
+          <input data-field="firstVestDate" type="date" />
+        </label>
+        <button class="icon-button" type="button" data-action="remove">🗑 Remove</button>
+      </div>
+    </template>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

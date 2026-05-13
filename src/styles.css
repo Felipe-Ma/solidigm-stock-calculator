@@ -1,0 +1,431 @@
+:root {
+  color: #152033;
+  background: #eef4ff;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+
+button, input, textarea { font: inherit; }
+
+button { cursor: pointer; }
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.app-shell {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 28px 0;
+}
+
+.hero-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 28px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 32px;
+  background:
+    radial-gradient(circle at top right, rgba(74, 144, 255, 0.45), transparent 38%),
+    linear-gradient(135deg, #ffffff 0%, #dfeaff 100%);
+  box-shadow: 0 24px 70px rgba(40, 65, 120, 0.18);
+}
+
+.eyebrow {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 14px;
+  color: #2563eb;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1, h2, p { margin-top: 0; }
+
+h1 {
+  max-width: 760px;
+  margin-bottom: 16px;
+  color: #0f172a;
+  font-size: clamp(2.1rem, 5vw, 4rem);
+  line-height: 0.95;
+  letter-spacing: -0.07em;
+}
+
+h2 {
+  margin-bottom: 4px;
+  color: #111827;
+  font-size: 1.15rem;
+}
+
+.hero-copy {
+  max-width: 700px;
+  margin-bottom: 0;
+  color: #526079;
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.hero-stats {
+  display: grid;
+  gap: 12px;
+}
+
+.hero-stat {
+  min-width: 210px;
+  padding: 24px;
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.72);
+  text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.hero-stat span {
+  display: block;
+  color: #1d4ed8;
+  font-size: 2.15rem;
+  font-weight: 900;
+}
+
+.hero-stat small {
+  color: #64748b;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.panel {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 18px 48px rgba(31, 41, 55, 0.10);
+}
+
+.plan-panel, .grants-panel, .schedule-panel { padding: 22px; }
+
+.panel-heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.panel-heading p {
+  margin-bottom: 0;
+  color: #64748b;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.split-heading {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+textarea {
+  width: 100%;
+  min-height: 210px;
+  padding: 16px;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 18px;
+  background: #f8fbff;
+  color: #172033;
+  line-height: 1.65;
+}
+
+input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #f8fbff;
+  color: #172033;
+}
+
+input:focus, textarea:focus {
+  border-color: #3b82f6;
+  outline: 3px solid rgba(59, 130, 246, 0.16);
+}
+
+.helper-text {
+  margin: 12px 0 0;
+  color: #2563eb;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.price-input-card {
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.price-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #f8fbff;
+  color: #1d4ed8;
+  font-size: 1.25rem;
+  font-weight: 900;
+}
+
+.price-input-wrap input {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #0f172a;
+  font-size: 1.25rem;
+  font-weight: 900;
+}
+
+.price-input-wrap input:focus { outline: 0; }
+
+.plan-metric-grid {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  background: #f8fbff;
+}
+
+.plan-metric {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e0e7ff;
+}
+
+.plan-metric:last-child { border-bottom: 0; }
+
+.plan-metric strong {
+  color: #1d4ed8;
+  font-size: 1.05rem;
+  letter-spacing: -0.03em;
+}
+
+.plan-metric span {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-align: right;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.secondary-button, .icon-button {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  font-weight: 800;
+}
+
+.secondary-button {
+  flex: 0 0 auto;
+  padding: 11px 14px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.25);
+}
+
+.icon-button {
+  align-self: end;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.grant-list {
+  display: grid;
+  gap: 12px;
+}
+
+.grant-card {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr 1fr auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  background: #ffffff;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.schedule-grid {
+  display: block;
+}
+
+.schedule-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+.schedule-table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+}
+
+.schedule-table th,
+.schedule-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.schedule-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fbff;
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.schedule-table tr:last-child td { border-bottom: 0; }
+
+.schedule-table tbody tr:nth-child(even) { background: #fbfdff; }
+
+.schedule-table time {
+  color: #0f172a;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.shares-cell, .value-cell {
+  color: #1d4ed8;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.value-cell { color: #0f766e; }
+
+.running-shares {
+  display: block;
+  color: #111827;
+  white-space: nowrap;
+}
+
+.running-value {
+  display: block;
+  margin-top: 2px;
+  color: #0f766e;
+  font-size: 0.84rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.grant-breakdown {
+  display: grid;
+  gap: 6px;
+}
+
+.grant-vest-line {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.2fr) 80px 110px 125px;
+  gap: 10px;
+  align-items: center;
+  color: #475569;
+  font-size: 0.88rem;
+}
+
+.grant-name {
+  color: #111827;
+  font-weight: 800;
+}
+
+.remaining-percent {
+  color: #0f766e;
+  font-weight: 900;
+  text-align: right;
+}
+
+.empty-row {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.92rem;
+}
+
+.grant-empty-state, .schedule-empty-state {
+  padding: 18px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 18px;
+  background: #f8fbff;
+}
+
+.schedule-empty-state { grid-column: 1 / -1; }
+
+@media (max-width: 900px) {
+  .hero-card, .workspace { grid-template-columns: 1fr; }
+  .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero-stat { text-align: left; }
+  .plan-metric-grid { grid-template-columns: repeat(3, 1fr); }
+  .plan-metric { display: block; }
+  .plan-metric span { display: block; margin-top: 3px; text-align: left; }
+  .grant-card { grid-template-columns: 1fr 1fr; }
+  .icon-button { grid-column: 1 / -1; width: 100%; }
+}
+
+@media (max-width: 560px) {
+  .app-shell { width: min(100% - 20px, 1180px); padding: 20px 0; }
+  .hero-card, .plan-panel, .grants-panel, .schedule-panel { padding: 18px; border-radius: 22px; }
+  .hero-stats { grid-template-columns: 1fr; }
+  .grant-card { grid-template-columns: 1fr; }
+  .plan-metric-grid { grid-template-columns: 1fr; }
+  .grant-vest-line { grid-template-columns: 1fr 1fr; }
+  .remaining-percent { text-align: left; }
+  .split-heading { flex-direction: column; }
+  .secondary-button { width: 100%; }
+}
