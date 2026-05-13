@@ -17,4 +17,4 @@ Then open http://127.0.0.1:5173 in your browser.
 - Lets you add stock grants with a name, total shares, and first vest date.
 - Automatically creates a 4-year LTI schedule with 16 quarterly vest events for every grant.
 - Divides each grant evenly across those 16 quarters.
-- Shows the per-quarter vesting layout and total shares scheduled.
+- Shows a compact per-quarter vesting table with total shares scheduled and percentage remaining after each vest.

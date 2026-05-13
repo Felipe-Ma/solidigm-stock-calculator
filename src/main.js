@@ -163,6 +163,7 @@ function getSchedule() {
         label: grant.label || 'Untitled grant',
         amount: sharesPerQuarter,
         vestNumber: index + 1,
+        remainingPercentage: ((QUARTERS_IN_LTI_PLAN - (index + 1)) / QUARTERS_IN_LTI_PLAN) * 100,
       });
     });
   });
@@ -214,24 +215,41 @@ function renderSchedule() {
     return;
   }
 
-  schedule.forEach((row) => {
-    const card = document.createElement('article');
-    card.className = 'schedule-card';
+  const tableWrapper = document.createElement('div');
+  tableWrapper.className = 'schedule-table-wrapper';
+  tableWrapper.innerHTML = `
+    <table class="schedule-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Total shares</th>
+          <th>Grant breakdown</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${schedule.map((row) => `
+          <tr>
+            <td><time datetime="${toDateKey(row.date)}">${formatDate(row.date)}</time></td>
+            <td class="shares-cell">${formatShares(row.total)}</td>
+            <td>
+              <div class="grant-breakdown">
+                ${row.grants.map((grant) => `
+                  <div class="grant-vest-line">
+                    <span class="grant-name">${escapeHtml(grant.label)}</span>
+                    <span>Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
+                    <span>${formatShares(grant.amount)} shares</span>
+                    <span class="remaining-percent">${formatShares(grant.remainingPercentage)}% remaining</span>
+                  </div>
+                `).join('')}
+              </div>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
 
-    const grantRows = `<ul>${row.grants.map((grant) => `
-      <li>
-        <span>${escapeHtml(grant.label)} <small>vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</small></span>
-        <b>${formatShares(grant.amount)}</b>
-      </li>`).join('')}
-    </ul>`;
-
-    card.innerHTML = `
-      <div class="date-pill">${formatDate(row.date)}</div>
-      <strong>${formatShares(row.total)} shares</strong>
-      ${grantRows}
-    `;
-    scheduleGrid.append(card);
-  });
+  scheduleGrid.append(tableWrapper);
 }
 
 function updateGrant(id, field, value) {
