@@ -16,9 +16,15 @@
             Add each stock grant once. The app saves your grants locally and builds the 16-quarter vesting schedule for a standard 4-year LTI plan.
           </p>
         </div>
-        <div class="hero-stat">
-          <span id="grand-total">0</span>
-          <small>shares scheduled</small>
+        <div class="hero-stats">
+          <div class="hero-stat">
+            <span id="grand-total">0</span>
+            <small>shares scheduled</small>
+          </div>
+          <div class="hero-stat">
+            <span id="total-value">$0</span>
+            <small>estimated value</small>
+          </div>
         </div>
       </section>
 
@@ -31,6 +37,13 @@
               <p>No manual quarter-date list needed. Every grant uses the same 4-year plan.</p>
             </div>
           </div>
+          <label class="price-input-card">
+            Stock price
+            <span class="price-input-wrap">
+              <span aria-hidden="true">$</span>
+              <input id="stock-price" type="number" min="0" step="0.01" placeholder="0.00" />
+            </span>
+          </label>
           <div class="plan-metric-grid">
             <div class="plan-metric">
               <strong>4 years</strong>
@@ -41,8 +54,8 @@
               <span>Quarterly vests</span>
             </div>
             <div class="plan-metric">
-              <strong>25%</strong>
-              <span>Per year</span>
+              <strong id="next-vest-value">$0</strong>
+              <span>Next vest value</span>
             </div>
           </div>
           <p class="helper-text" id="database-status">Loading local database…</p>
@@ -65,7 +78,7 @@
         <div class="panel-heading split-heading">
           <div>
             <h2>Grant layout</h2>
-            <p>A compact table showing each vest date, shares vesting, and the percentage remaining after that vest.</p>
+            <p>A compact table showing vest value, running totals, and the percentage remaining after each vest.</p>
           </div>
         </div>
         <div class="schedule-grid" id="schedule-grid"></div>

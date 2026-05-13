@@ -3,6 +3,7 @@ const DATABASE_VERSION = 2;
 const GRANT_STORE = 'grants';
 const METADATA_STORE = 'metadata';
 const QUARTERS_IN_LTI_PLAN = 16;
+const STOCK_PRICE_KEY = 'stockPrice';
 
 const DEFAULT_GRANTS = [
   { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', firstVestDate: '2025-01-30' },
@@ -12,11 +13,15 @@ const DEFAULT_GRANTS = [
 let grants = [];
 let database;
 let saveTimer;
+let stockPrice = 0;
 
 const databaseStatus = document.querySelector('#database-status');
 const grantList = document.querySelector('#grant-list');
 const scheduleGrid = document.querySelector('#schedule-grid');
 const grandTotal = document.querySelector('#grand-total');
+const totalValue = document.querySelector('#total-value');
+const nextVestValue = document.querySelector('#next-vest-value');
+const stockPriceInput = document.querySelector('#stock-price');
 const grantTemplate = document.querySelector('#grant-template');
 const addGrantButton = document.querySelector('#add-grant');
 
@@ -98,6 +103,13 @@ function scheduleSave() {
   }, 200);
 }
 
+function saveStockPrice() {
+  if (!database) return;
+  writeMetadata(STOCK_PRICE_KEY, stockPrice).catch(() => {
+    databaseStatus.textContent = 'Could not save stock price locally.';
+  });
+}
+
 function parseDate(value) {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -137,6 +149,16 @@ function formatDate(date) {
 
 function formatShares(value) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value);
+}
+
+function startOfToday() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
 }
 
 function getGrantVestDates(firstVestDate) {
@@ -203,8 +225,12 @@ function renderGrantInputs() {
 function renderSchedule() {
   const schedule = getSchedule();
   const totalShares = schedule.reduce((sum, row) => sum + row.total, 0);
+  const estimatedValue = totalShares * stockPrice;
+  const nextRow = schedule.find((row) => row.date >= startOfToday()) || schedule[0];
 
   grandTotal.textContent = formatShares(totalShares);
+  totalValue.textContent = formatCurrency(estimatedValue);
+  nextVestValue.textContent = formatCurrency((nextRow?.total || 0) * stockPrice);
   scheduleGrid.replaceChildren();
 
   if (schedule.length === 0) {
@@ -215,6 +241,7 @@ function renderSchedule() {
     return;
   }
 
+  let runningShares = 0;
   const tableWrapper = document.createElement('div');
   tableWrapper.className = 'schedule-table-wrapper';
   tableWrapper.innerHTML = `
@@ -222,29 +249,42 @@ function renderSchedule() {
       <thead>
         <tr>
           <th>Date</th>
-          <th>Total shares</th>
+          <th>Vesting</th>
+          <th>Vest value</th>
+          <th>Running total</th>
           <th>Grant breakdown</th>
         </tr>
       </thead>
       <tbody>
-        ${schedule.map((row) => `
-          <tr>
-            <td><time datetime="${toDateKey(row.date)}">${formatDate(row.date)}</time></td>
-            <td class="shares-cell">${formatShares(row.total)}</td>
-            <td>
-              <div class="grant-breakdown">
-                ${row.grants.map((grant) => `
-                  <div class="grant-vest-line">
-                    <span class="grant-name">${escapeHtml(grant.label)}</span>
-                    <span>Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
-                    <span>${formatShares(grant.amount)} shares</span>
-                    <span class="remaining-percent">${formatShares(grant.remainingPercentage)}% remaining</span>
-                  </div>
-                `).join('')}
-              </div>
-            </td>
-          </tr>
-        `).join('')}
+        ${schedule.map((row) => {
+          runningShares += row.total;
+          const vestValue = row.total * stockPrice;
+          const runningValue = runningShares * stockPrice;
+
+          return `
+            <tr>
+              <td><time datetime="${toDateKey(row.date)}">${formatDate(row.date)}</time></td>
+              <td class="shares-cell">${formatShares(row.total)} shares</td>
+              <td class="value-cell">${formatCurrency(vestValue)}</td>
+              <td>
+                <strong class="running-shares">${formatShares(runningShares)} shares</strong>
+                <span class="running-value">${formatCurrency(runningValue)}</span>
+              </td>
+              <td>
+                <div class="grant-breakdown">
+                  ${row.grants.map((grant) => `
+                    <div class="grant-vest-line">
+                      <span class="grant-name">${escapeHtml(grant.label)}</span>
+                      <span>Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
+                      <span>${formatShares(grant.amount)} shares</span>
+                      <span class="remaining-percent">${formatShares(grant.remainingPercentage)}% remaining</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('')}
       </tbody>
     </table>
   `;
@@ -288,6 +328,9 @@ function escapeHtml(value) {
 async function initializeApp() {
   database = await openDatabase();
   const hasInitialized = await readMetadata('initialized');
+  const savedStockPrice = await readMetadata(STOCK_PRICE_KEY);
+  stockPrice = Number(savedStockPrice) || 0;
+  stockPriceInput.value = stockPrice || '';
   grants = await readGrants();
 
   if (!hasInitialized && grants.length === 0) {
@@ -302,8 +345,15 @@ async function initializeApp() {
   renderSchedule();
 }
 
+function updateStockPrice(value) {
+  stockPrice = Number(value) || 0;
+  renderSchedule();
+  saveStockPrice();
+}
+
 addGrantButton.disabled = true;
 addGrantButton.addEventListener('click', addGrant);
+stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
 initializeApp().catch(() => {
   databaseStatus.textContent = 'Could not open the local database. Refresh and try again.';
   renderGrantInputs();
