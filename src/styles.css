@@ -14,6 +14,11 @@ button, input, textarea { font: inherit; }
 
 button { cursor: pointer; }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .app-shell {
   width: min(1180px, calc(100% - 32px));
   margin: 0 auto;
@@ -111,7 +116,7 @@ h2 {
   box-shadow: 0 18px 48px rgba(31, 41, 55, 0.10);
 }
 
-.input-panel, .grants-panel, .schedule-panel { padding: 24px; }
+.plan-panel, .grants-panel, .schedule-panel { padding: 24px; }
 
 .panel-heading {
   display: flex;
@@ -166,6 +171,35 @@ input:focus, textarea:focus {
   font-weight: 700;
 }
 
+.plan-metric-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.plan-metric {
+  padding: 18px;
+  border: 1px solid #dbeafe;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
+}
+
+.plan-metric strong {
+  display: block;
+  color: #1d4ed8;
+  font-size: 1.65rem;
+  letter-spacing: -0.05em;
+}
+
+.plan-metric span {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .secondary-button, .icon-button {
   display: inline-flex;
   gap: 8px;
@@ -186,8 +220,9 @@ input:focus, textarea:focus {
 
 .icon-button {
   align-self: end;
-  width: 44px;
-  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
   border-radius: 14px;
   background: #fee2e2;
   color: #b91c1c;
@@ -200,7 +235,7 @@ input:focus, textarea:focus {
 
 .grant-card {
   display: grid;
-  grid-template-columns: 1.2fr 0.8fr 1fr 1fr auto;
+  grid-template-columns: 1.2fr 0.8fr 1fr auto;
   gap: 12px;
   align-items: end;
   padding: 14px;
@@ -268,11 +303,30 @@ label {
 
 .schedule-card li b { color: #111827; }
 
+.schedule-card small {
+  display: block;
+  margin-top: 2px;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .empty-row {
   margin: 0;
   color: #94a3b8;
   font-size: 0.92rem;
 }
+
+.grant-empty-state, .schedule-empty-state {
+  padding: 18px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 18px;
+  background: #f8fbff;
+}
+
+.schedule-empty-state { grid-column: 1 / -1; }
 
 @media (max-width: 900px) {
   .hero-card, .workspace { grid-template-columns: 1fr; }
@@ -283,7 +337,7 @@ label {
 
 @media (max-width: 560px) {
   .app-shell { width: min(100% - 20px, 1180px); padding: 20px 0; }
-  .hero-card, .input-panel, .grants-panel, .schedule-panel { padding: 18px; border-radius: 22px; }
+  .hero-card, .plan-panel, .grants-panel, .schedule-panel { padding: 18px; border-radius: 22px; }
   .grant-card { grid-template-columns: 1fr; }
   .split-heading { flex-direction: column; }
   .secondary-button { width: 100%; }

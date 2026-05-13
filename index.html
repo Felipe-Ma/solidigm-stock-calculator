@@ -11,9 +11,9 @@
       <section class="hero-card">
         <div>
           <p class="eyebrow">✨ Solidigm stock calculator</p>
-          <h1>Map grants across quarterly vest dates.</h1>
+          <h1>Track 4-year LTI grants automatically.</h1>
           <p class="hero-copy">
-            Paste the quarter dates, add each stock grant, and this first version will divide every grant evenly across the dates between its start and end.
+            Add each stock grant once. The app saves your grants locally and builds the 16-quarter vesting schedule for a standard 4-year LTI plan.
           </p>
         </div>
         <div class="hero-stat">
@@ -23,23 +23,36 @@
       </section>
 
       <section class="workspace">
-        <div class="panel input-panel">
+        <div class="panel plan-panel">
           <div class="panel-heading">
             <span aria-hidden="true">📅</span>
             <div>
-              <h2>Quarter dates</h2>
-              <p>Enter one date per line. Formats like 1/30/25 or 2025-01-30 work.</p>
+              <h2>Automatic LTI schedule</h2>
+              <p>No manual quarter-date list needed. Every grant uses the same 4-year plan.</p>
             </div>
           </div>
-          <textarea id="quarter-dates" aria-label="Quarter dates"></textarea>
-          <p class="helper-text" id="valid-date-count">0 valid quarter dates found.</p>
+          <div class="plan-metric-grid">
+            <div class="plan-metric">
+              <strong>4 years</strong>
+              <span>Plan length</span>
+            </div>
+            <div class="plan-metric">
+              <strong>16</strong>
+              <span>Quarterly vests</span>
+            </div>
+            <div class="plan-metric">
+              <strong>25%</strong>
+              <span>Per year</span>
+            </div>
+          </div>
+          <p class="helper-text" id="database-status">Loading local database…</p>
         </div>
 
         <div class="panel grants-panel">
           <div class="panel-heading split-heading">
             <div>
               <h2>Stock grants</h2>
-              <p>Use the grant's total share count and the first/last quarter date it should vest on.</p>
+              <p>Enter the grant's total shares and first vest date. Changes are saved in your browser's local database.</p>
             </div>
             <button class="secondary-button" type="button" id="add-grant">＋ Add grant</button>
           </div>
@@ -52,7 +65,7 @@
         <div class="panel-heading split-heading">
           <div>
             <h2>Grant layout</h2>
-            <p>Each row shows the shares that vest on that quarter date.</p>
+            <p>Each row shows the shares that vest on the automatically calculated quarter date.</p>
           </div>
         </div>
         <div class="schedule-grid" id="schedule-grid"></div>
@@ -70,12 +83,8 @@
           <input data-field="shares" type="number" min="0" placeholder="1000" />
         </label>
         <label>
-          Starts
-          <input data-field="startDate" type="date" />
-        </label>
-        <label>
-          Ends
-          <input data-field="endDate" type="date" />
+          First vest date
+          <input data-field="firstVestDate" type="date" />
         </label>
         <button class="icon-button" type="button" data-action="remove">🗑 Remove</button>
       </div>
