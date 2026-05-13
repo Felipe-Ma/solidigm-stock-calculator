@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Solidigm Stock Calculator</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero-card">
+        <div>
+          <p class="eyebrow">✨ Solidigm stock calculator</p>
+          <h1>Map grants across quarterly vest dates.</h1>
+          <p class="hero-copy">
+            Paste the quarter dates, add each stock grant, and this first version will divide every grant evenly across the dates between its start and end.
+          </p>
+        </div>
+        <div class="hero-stat">
+          <span id="grand-total">0</span>
+          <small>shares scheduled</small>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <div class="panel input-panel">
+          <div class="panel-heading">
+            <span aria-hidden="true">📅</span>
+            <div>
+              <h2>Quarter dates</h2>
+              <p>Enter one date per line. Formats like 1/30/25 or 2025-01-30 work.</p>
+            </div>
+          </div>
+          <textarea id="quarter-dates" aria-label="Quarter dates"></textarea>
+          <p class="helper-text" id="valid-date-count">0 valid quarter dates found.</p>
+        </div>
+
+        <div class="panel grants-panel">
+          <div class="panel-heading split-heading">
+            <div>
+              <h2>Stock grants</h2>
+              <p>Use the grant's total share count and the first/last quarter date it should vest on.</p>
+            </div>
+            <button class="secondary-button" type="button" id="add-grant">＋ Add grant</button>
+          </div>
+
+          <div class="grant-list" id="grant-list"></div>
+        </div>
+      </section>
+
+      <section class="panel schedule-panel">
+        <div class="panel-heading split-heading">
+          <div>
+            <h2>Grant layout</h2>
+            <p>Each row shows the shares that vest on that quarter date.</p>
+          </div>
+        </div>
+        <div class="schedule-grid" id="schedule-grid"></div>
+      </section>
+    </main>
+
+    <template id="grant-template">
+      <div class="grant-card">
+        <label>
+          Name
+          <input data-field="label" placeholder="Grant name" />
+        </label>
+        <label>
+          Shares
+          <input data-field="shares" type="number" min="0" placeholder="1000" />
+        </label>
+        <label>
+          Starts
+          <input data-field="startDate" type="date" />
+        </label>
+        <label>
+          Ends
+          <input data-field="endDate" type="date" />
+        </label>
+        <button class="icon-button" type="button" data-action="remove">🗑 Remove</button>
+      </div>
+    </template>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

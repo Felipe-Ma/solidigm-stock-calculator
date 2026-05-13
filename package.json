@@ -1,0 +1,7 @@
+{
+  "name": "solidigm-stock-calculator",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 5173"
+  }
+}
