@@ -541,7 +541,7 @@ function getIncomeJson() {
 
 function isFutureIncomeEntry(entry) {
   const entryDate = parseDate(entry.dateKey);
-  return entryDate && entryDate >= startOfToday();
+  return entryDate && entryDate > startOfToday();
 }
 
 function getFutureIncomeEntries() {
@@ -666,7 +666,7 @@ function addTaxableIncomeEntry(event) {
 
 function getFuturePaycheckSchedule() {
   const today = startOfToday();
-  return PAYCHECK_SCHEDULE_2026.filter((paycheck) => parseDate(paycheck.dateKey) >= today);
+  return PAYCHECK_SCHEDULE_2026.filter((paycheck) => parseDate(paycheck.dateKey) > today);
 }
 
 function getFuturePaycheckSummary() {
