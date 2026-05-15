@@ -28,6 +28,14 @@
         </div>
       </section>
 
+      <section class="tab-shell" aria-label="Calculator sections">
+        <div class="tab-list" role="tablist" aria-label="Calculator tabs">
+          <button class="tab-button is-active" type="button" id="stock-tab" role="tab" aria-selected="true" aria-controls="stock-panel" data-tab-target="stock-panel">Stock calculator</button>
+          <button class="tab-button" type="button" id="income-tab" role="tab" aria-selected="false" aria-controls="income-panel" data-tab-target="income-panel">Taxable income</button>
+        </div>
+      </section>
+
+      <div class="tab-panel is-active" id="stock-panel" role="tabpanel" aria-labelledby="stock-tab">
       <section class="workspace">
         <div class="panel plan-panel">
           <div class="panel-heading">
@@ -90,46 +98,6 @@
         </div>
       </section>
 
-      <section class="panel income-panel">
-        <div class="panel-heading split-heading">
-          <div>
-            <span aria-hidden="true">💵</span>
-            <div>
-              <h2>Taxable income tracker</h2>
-              <p>Paste one paycheck, bonus, RSU, or other taxable event per line using comma-separated fields: date, taxable income, category, job.</p>
-            </div>
-          </div>
-          <div class="income-total-card">
-            <span>Total taxable income</span>
-            <strong id="taxable-income-total">$0</strong>
-          </div>
-        </div>
-
-        <label class="income-input-label">
-          Income entries
-          <textarea
-            id="taxable-income-input"
-            placeholder="2026-01-15, 3500, normal paycheck, j1&#10;2026-02-01, 12000, bonus, j1&#10;2026-02-15, 4200, normal paycheck + rcu, j2&#10;2026-03-01, 8000, rsu, j1"
-          ></textarea>
-        </label>
-        <p class="helper-text" id="taxable-income-status">Enter taxable income rows to see totals by job and category.</p>
-
-        <div class="income-summary-grid" id="taxable-income-summary"></div>
-        <div class="income-table-wrap">
-          <table class="income-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Taxable income</th>
-                <th>Category</th>
-                <th>Job</th>
-              </tr>
-            </thead>
-            <tbody id="taxable-income-table"></tbody>
-          </table>
-        </div>
-      </section>
-
       <section class="panel schedule-panel">
         <div class="panel-heading split-heading">
           <div>
@@ -140,6 +108,103 @@
         </div>
         <div class="schedule-grid" id="schedule-grid"></div>
       </section>
+      </div>
+
+      <div class="tab-panel" id="income-panel" role="tabpanel" aria-labelledby="income-tab" hidden>
+        <section class="panel income-panel">
+          <div class="panel-heading split-heading">
+            <div>
+              <span aria-hidden="true">💵</span>
+              <div>
+                <h2>Taxable income tracker</h2>
+                <p>Add paychecks, bonuses, RSUs, and other taxable events. Entries are saved locally as JSON and can be copied or downloaded for VS Code.</p>
+              </div>
+            </div>
+            <div class="income-action-row">
+              <button class="secondary-button" type="button" id="copy-income-json">Copy JSON</button>
+              <button class="secondary-button subtle-button" type="button" id="download-income-json">Download JSON</button>
+            </div>
+          </div>
+
+          <div class="income-total-grid" aria-label="Taxable income totals">
+            <article class="income-total-card income-j1">
+              <span>J1 taxable income</span>
+              <strong id="taxable-income-j1-total">$0</strong>
+            </article>
+            <article class="income-total-card income-j2">
+              <span>J2 taxable income</span>
+              <strong id="taxable-income-j2-total">$0</strong>
+            </article>
+            <article class="income-total-card income-total">
+              <span>Total taxable income</span>
+              <strong id="taxable-income-total">$0</strong>
+            </article>
+          </div>
+
+          <form class="income-entry-form" id="income-entry-form">
+            <label>
+              Date
+              <input id="income-date" type="date" required />
+            </label>
+            <label>
+              Taxable income
+              <input id="income-amount" type="number" min="0" step="0.01" placeholder="3500.00" required />
+            </label>
+            <label>
+              Category
+              <select id="income-category">
+                <option value="Normal paycheck">Normal paycheck</option>
+                <option value="Bonus">Bonus</option>
+                <option value="Normal paycheck + RCU">Normal paycheck + RCU</option>
+                <option value="RSU">RSU</option>
+              </select>
+            </label>
+            <label>
+              Job
+              <select id="income-job">
+                <option value="J1">J1</option>
+                <option value="J2">J2</option>
+              </select>
+            </label>
+            <button class="secondary-button" type="submit">＋ Save entry</button>
+          </form>
+
+          <details class="income-import-details">
+            <summary>Bulk paste comma-separated entries</summary>
+            <label class="income-input-label">
+              One row per taxable event: date, taxable income, category, job
+              <textarea
+                id="taxable-income-input"
+                placeholder="2026-01-15, 3500, normal paycheck, j1&#10;2026-02-01, 12000, bonus, j1&#10;2026-02-15, 4200, normal paycheck + rcu, j2&#10;2026-03-01, 8000, rsu, j1"
+              ></textarea>
+            </label>
+            <button class="secondary-button" type="button" id="import-income-rows">Import pasted rows</button>
+          </details>
+
+          <p class="helper-text" id="taxable-income-status">Add taxable income entries to see totals by J1, J2, and category.</p>
+
+          <div class="income-summary-grid" id="taxable-income-summary"></div>
+          <div class="income-table-wrap">
+            <table class="income-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Taxable income</th>
+                  <th>Category</th>
+                  <th>Job</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="taxable-income-table"></tbody>
+            </table>
+          </div>
+
+          <label class="income-json-label">
+            Saved JSON for VS Code
+            <textarea id="taxable-income-json" readonly></textarea>
+          </label>
+        </section>
+      </div>
     </main>
 
     <template id="grant-template">

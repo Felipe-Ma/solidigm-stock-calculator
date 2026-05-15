@@ -7,6 +7,7 @@ const STOCK_PRICE_KEY = 'stockPrice';
 const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
 const NET_UNIT_OVERRIDES_KEY = 'netUnitOverrides';
 const TAXABLE_INCOME_INPUT_KEY = 'taxableIncomeInput';
+const TAXABLE_INCOME_ENTRIES_KEY = 'taxableIncomeEntries';
 const TAX_WITHHOLDING_RATE = 0.415;
 
 const DEFAULT_GRANTS = [
@@ -20,7 +21,8 @@ let saveTimer;
 let stockPrice = 0;
 let grantGrossOverrides = {};
 let netUnitOverrides = {};
-let taxableIncomeInput = '';
+let taxableIncomeEntries = [];
+let taxableIncomeDraftInput = '';
 
 const databaseStatus = document.querySelector('#database-status');
 const grantList = document.querySelector('#grant-list');
@@ -36,11 +38,23 @@ const stockPriceInput = document.querySelector('#stock-price');
 const grantTemplate = document.querySelector('#grant-template');
 const addGrantButton = document.querySelector('#add-grant');
 const resetCorrectionsButton = document.querySelector('#reset-corrections');
+const tabButtons = document.querySelectorAll('[data-tab-target]');
 const taxableIncomeInputField = document.querySelector('#taxable-income-input');
+const taxableIncomeJsonOutput = document.querySelector('#taxable-income-json');
 const taxableIncomeTotal = document.querySelector('#taxable-income-total');
+const taxableIncomeJ1Total = document.querySelector('#taxable-income-j1-total');
+const taxableIncomeJ2Total = document.querySelector('#taxable-income-j2-total');
 const taxableIncomeStatus = document.querySelector('#taxable-income-status');
 const taxableIncomeSummary = document.querySelector('#taxable-income-summary');
 const taxableIncomeTable = document.querySelector('#taxable-income-table');
+const incomeEntryForm = document.querySelector('#income-entry-form');
+const incomeDateInput = document.querySelector('#income-date');
+const incomeAmountInput = document.querySelector('#income-amount');
+const incomeCategoryInput = document.querySelector('#income-category');
+const incomeJobInput = document.querySelector('#income-job');
+const importIncomeRowsButton = document.querySelector('#import-income-rows');
+const copyIncomeJsonButton = document.querySelector('#copy-income-json');
+const downloadIncomeJsonButton = document.querySelector('#download-income-json');
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -141,9 +155,9 @@ function saveNetUnitOverrides() {
   });
 }
 
-function saveTaxableIncomeInput() {
+function saveTaxableIncomeEntries() {
   if (!database) return;
-  writeMetadata(TAXABLE_INCOME_INPUT_KEY, taxableIncomeInput).catch(() => {
+  writeMetadata(TAXABLE_INCOME_ENTRIES_KEY, taxableIncomeEntries).catch(() => {
     taxableIncomeStatus.textContent = 'Could not save taxable income entries locally.';
   });
 }
@@ -392,6 +406,36 @@ function splitCommaFields(line) {
   return fields;
 }
 
+function createTaxableIncomeEntry({ date, amount, category, job }) {
+  return {
+    id: crypto.randomUUID(),
+    dateKey: toDateKey(date),
+    amount,
+    category: normalizeIncomeCategory(category),
+    job: normalizeIncomeJob(job),
+  };
+}
+
+function sanitizeSavedIncomeEntries(entries) {
+  if (!Array.isArray(entries)) return [];
+
+  return entries
+    .map((entry) => {
+      const date = parseDate(entry.dateKey || entry.date || '');
+      const amount = parseCurrencyAmount(entry.amount);
+      if (!date || !amount || amount < 0) return null;
+      return {
+        id: entry.id || crypto.randomUUID(),
+        dateKey: toDateKey(date),
+        amount,
+        category: normalizeIncomeCategory(entry.category || ''),
+        job: normalizeIncomeJob(entry.job || ''),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => parseDate(a.dateKey) - parseDate(b.dateKey));
+}
+
 function parseTaxableIncomeEntries(input) {
   const entries = [];
   const errors = [];
@@ -421,42 +465,38 @@ function parseTaxableIncomeEntries(input) {
       return;
     }
 
-    entries.push({
-      date,
-      dateKey: toDateKey(date),
-      amount,
-      category: normalizeIncomeCategory(categoryValue),
-      job: normalizeIncomeJob(jobValue),
-    });
+    entries.push(createTaxableIncomeEntry({ date, amount, category: categoryValue, job: jobValue }));
   });
 
-  return { entries: entries.sort((a, b) => a.date - b.date), errors };
+  return { entries, errors };
 }
 
-function renderTaxableIncome() {
-  const { entries, errors } = parseTaxableIncomeEntries(taxableIncomeInput);
-  const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
-  const totalsByJob = entries.reduce((totals, entry) => {
-    totals[entry.job] = (totals[entry.job] || 0) + entry.amount;
-    return totals;
-  }, {});
-  const totalsByCategory = entries.reduce((totals, entry) => {
-    totals[entry.category] = (totals[entry.category] || 0) + entry.amount;
-    return totals;
-  }, {});
+function getIncomeJson() {
+  return JSON.stringify({ taxableIncomeEntries }, null, 2);
+}
 
-  taxableIncomeTotal.textContent = formatCurrency(total);
-  taxableIncomeStatus.textContent = errors.length > 0
-    ? `${entries.length} valid entr${entries.length === 1 ? 'y' : 'ies'} parsed. ${errors.join(' ')}`
-    : `${entries.length} taxable income entr${entries.length === 1 ? 'y' : 'ies'} parsed and saved locally.`;
+function getIncomeTotals() {
+  return taxableIncomeEntries.reduce((totals, entry) => {
+    totals.total += entry.amount;
+    if (entry.job === 'J1') totals.j1 += entry.amount;
+    if (entry.job === 'J2') totals.j2 += entry.amount;
+    totals.byCategory[entry.category] = (totals.byCategory[entry.category] || 0) + entry.amount;
+    return totals;
+  }, { total: 0, j1: 0, j2: 0, byCategory: {} });
+}
 
-  const summaryCards = [
-    ...Object.entries(totalsByJob).map(([label, value]) => ({ label, value, type: toClassToken(label) })),
-    ...Object.entries(totalsByCategory).map(([label, value]) => ({ label, value, type: 'category' })),
-  ];
+function renderTaxableIncome(message) {
+  const totals = getIncomeTotals();
+  taxableIncomeTotal.textContent = formatCurrency(totals.total);
+  taxableIncomeJ1Total.textContent = formatCurrency(totals.j1);
+  taxableIncomeJ2Total.textContent = formatCurrency(totals.j2);
+  taxableIncomeJsonOutput.value = getIncomeJson();
+  taxableIncomeStatus.textContent = message || `${taxableIncomeEntries.length} taxable income entr${taxableIncomeEntries.length === 1 ? 'y' : 'ies'} saved locally as JSON.`;
+
+  const summaryCards = Object.entries(totals.byCategory).map(([label, value]) => ({ label, value, type: 'category' }));
 
   taxableIncomeSummary.innerHTML = summaryCards.length === 0
-    ? '<p class="empty-row income-empty-state">Paste comma-separated income rows to calculate totals by job and category.</p>'
+    ? '<p class="empty-row income-empty-state">Add or import taxable income entries to calculate category totals.</p>'
     : summaryCards.map((card) => `
       <article class="income-summary-card income-${escapeHtml(card.type)}">
         <span>${escapeHtml(card.label)}</span>
@@ -464,22 +504,112 @@ function renderTaxableIncome() {
       </article>
     `).join('');
 
-  taxableIncomeTable.innerHTML = entries.length === 0
-    ? '<tr><td colspan="4" class="income-table-empty">No taxable income entries yet.</td></tr>'
-    : entries.map((entry) => `
-      <tr class="income-row income-${toClassToken(entry.job)}">
-        <td><time datetime="${entry.dateKey}">${formatDate(entry.date)}</time></td>
-        <td>${formatCurrency(entry.amount)}</td>
-        <td>${escapeHtml(entry.category)}</td>
-        <td><span class="job-pill job-${toClassToken(entry.job)}">${escapeHtml(entry.job)}</span></td>
-      </tr>
-    `).join('');
+  const rows = [...taxableIncomeEntries].sort((a, b) => parseDate(a.dateKey) - parseDate(b.dateKey));
+  taxableIncomeTable.innerHTML = rows.length === 0
+    ? '<tr><td colspan="5" class="income-table-empty">No taxable income entries yet.</td></tr>'
+    : rows.map((entry) => {
+      const date = parseDate(entry.dateKey);
+      return `
+        <tr class="income-row income-${toClassToken(entry.job)}">
+          <td><time datetime="${entry.dateKey}">${formatDate(date)}</time></td>
+          <td>${formatCurrency(entry.amount)}</td>
+          <td>${escapeHtml(entry.category)}</td>
+          <td><span class="job-pill job-${toClassToken(entry.job)}">${escapeHtml(entry.job)}</span></td>
+          <td><button class="text-button" type="button" data-action="remove-income-entry" data-entry-id="${entry.id}">Remove</button></td>
+        </tr>
+      `;
+    }).join('');
 }
 
-function updateTaxableIncomeInput(value) {
-  taxableIncomeInput = value;
-  renderTaxableIncome();
-  saveTaxableIncomeInput();
+function persistTaxableIncomeEntries(message) {
+  taxableIncomeEntries = sanitizeSavedIncomeEntries(taxableIncomeEntries);
+  renderTaxableIncome(message);
+  saveTaxableIncomeEntries();
+}
+
+function addTaxableIncomeEntry(event) {
+  event.preventDefault();
+  const date = parseDate(incomeDateInput.value);
+  const amount = parseCurrencyAmount(incomeAmountInput.value);
+
+  if (!date || !amount || amount < 0) {
+    renderTaxableIncome('Enter a valid date and taxable income amount before saving.');
+    return;
+  }
+
+  taxableIncomeEntries = [
+    ...taxableIncomeEntries,
+    createTaxableIncomeEntry({
+      date,
+      amount,
+      category: incomeCategoryInput.value,
+      job: incomeJobInput.value,
+    }),
+  ];
+  incomeEntryForm.reset();
+  incomeCategoryInput.value = 'Normal paycheck';
+  incomeJobInput.value = 'J1';
+  persistTaxableIncomeEntries('Saved taxable income entry locally as JSON.');
+}
+
+function importTaxableIncomeRows() {
+  const { entries, errors } = parseTaxableIncomeEntries(taxableIncomeInputField.value);
+  if (entries.length > 0) {
+    taxableIncomeEntries = [...taxableIncomeEntries, ...entries];
+    taxableIncomeDraftInput = '';
+    taxableIncomeInputField.value = '';
+  }
+
+  const message = errors.length > 0
+    ? `Imported ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}. ${errors.join(' ')}`
+    : `Imported ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} from pasted rows.`;
+  persistTaxableIncomeEntries(message);
+}
+
+function removeTaxableIncomeEntry(id) {
+  taxableIncomeEntries = taxableIncomeEntries.filter((entry) => entry.id !== id);
+  persistTaxableIncomeEntries('Removed taxable income entry and updated saved JSON.');
+}
+
+function updateTaxableIncomeDraft(value) {
+  taxableIncomeDraftInput = value;
+}
+
+async function copyIncomeJson() {
+  const json = getIncomeJson();
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(json);
+    renderTaxableIncome('Copied taxable income JSON for VS Code.');
+    return;
+  }
+
+  taxableIncomeJsonOutput.select();
+  document.execCommand('copy');
+  renderTaxableIncome('Copied taxable income JSON for VS Code.');
+}
+
+function downloadIncomeJson() {
+  const blob = new Blob([getIncomeJson()], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'taxable-income-entries.json';
+  link.click();
+  URL.revokeObjectURL(link.href);
+  renderTaxableIncome('Downloaded taxable-income-entries.json for VS Code.');
+}
+
+function switchTab(targetPanelId) {
+  tabButtons.forEach((button) => {
+    const isActive = button.dataset.tabTarget === targetPanelId;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-selected', String(isActive));
+  });
+
+  document.querySelectorAll('.tab-panel').forEach((panel) => {
+    const isActive = panel.id === targetPanelId;
+    panel.classList.toggle('is-active', isActive);
+    panel.hidden = !isActive;
+  });
 }
 
 function renderGrantInputs() {
@@ -739,11 +869,13 @@ async function initializeApp() {
   const savedGrantGrossOverrides = await readMetadata(GRANT_GROSS_OVERRIDES_KEY);
   const savedNetUnitOverrides = await readMetadata(NET_UNIT_OVERRIDES_KEY);
   const savedTaxableIncomeInput = await readMetadata(TAXABLE_INCOME_INPUT_KEY);
+  const savedTaxableIncomeEntries = await readMetadata(TAXABLE_INCOME_ENTRIES_KEY);
   stockPrice = Number(savedStockPrice) || 0;
   grantGrossOverrides = savedGrantGrossOverrides || {};
   netUnitOverrides = savedNetUnitOverrides || {};
-  taxableIncomeInput = savedTaxableIncomeInput || '';
-  taxableIncomeInputField.value = taxableIncomeInput;
+  taxableIncomeDraftInput = savedTaxableIncomeInput || '';
+  taxableIncomeInputField.value = taxableIncomeDraftInput;
+  taxableIncomeEntries = sanitizeSavedIncomeEntries(savedTaxableIncomeEntries || parseTaxableIncomeEntries(taxableIncomeDraftInput).entries);
   stockPriceInput.value = stockPrice || '';
   grants = await readGrants();
 
@@ -770,13 +902,29 @@ addGrantButton.disabled = true;
 addGrantButton.addEventListener('click', addGrant);
 resetCorrectionsButton.addEventListener('click', resetManualCorrections);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
-taxableIncomeInputField.addEventListener('input', (event) => updateTaxableIncomeInput(event.target.value));
+taxableIncomeInputField.addEventListener('input', (event) => updateTaxableIncomeDraft(event.target.value));
+incomeEntryForm.addEventListener('submit', addTaxableIncomeEntry);
+importIncomeRowsButton.addEventListener('click', importTaxableIncomeRows);
+copyIncomeJsonButton.addEventListener('click', () => {
+  copyIncomeJson().catch(() => {
+    renderTaxableIncome('Could not copy JSON automatically. Select the JSON text and copy it manually.');
+  });
+});
+downloadIncomeJsonButton.addEventListener('click', downloadIncomeJson);
+tabButtons.forEach((button) => {
+  button.addEventListener('click', () => switchTab(button.dataset.tabTarget));
+});
 scheduleGrid.addEventListener('change', (event) => {
   if (event.target.dataset.action === 'correct-grant-gross') {
     updateGrantGrossOverride(event.target.dataset.grantId, event.target.dataset.vestNumber, event.target.value);
   }
   if (event.target.dataset.action === 'correct-net-payout') {
     updateNetUnitOverride(event.target.dataset.dateKey, event.target.value);
+  }
+});
+taxableIncomeTable.addEventListener('click', (event) => {
+  if (event.target.dataset.action === 'remove-income-entry') {
+    removeTaxableIncomeEntry(event.target.dataset.entryId);
   }
 });
 initializeApp().catch(() => {
