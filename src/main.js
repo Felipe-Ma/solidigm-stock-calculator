@@ -6,6 +6,7 @@ const QUARTERS_IN_LTI_PLAN = 16;
 const STOCK_PRICE_KEY = 'stockPrice';
 const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
 const NET_UNIT_OVERRIDES_KEY = 'netUnitOverrides';
+const TAXABLE_INCOME_INPUT_KEY = 'taxableIncomeInput';
 const TAX_WITHHOLDING_RATE = 0.415;
 
 const DEFAULT_GRANTS = [
@@ -19,6 +20,7 @@ let saveTimer;
 let stockPrice = 0;
 let grantGrossOverrides = {};
 let netUnitOverrides = {};
+let taxableIncomeInput = '';
 
 const databaseStatus = document.querySelector('#database-status');
 const grantList = document.querySelector('#grant-list');
@@ -34,6 +36,11 @@ const stockPriceInput = document.querySelector('#stock-price');
 const grantTemplate = document.querySelector('#grant-template');
 const addGrantButton = document.querySelector('#add-grant');
 const resetCorrectionsButton = document.querySelector('#reset-corrections');
+const taxableIncomeInputField = document.querySelector('#taxable-income-input');
+const taxableIncomeTotal = document.querySelector('#taxable-income-total');
+const taxableIncomeStatus = document.querySelector('#taxable-income-status');
+const taxableIncomeSummary = document.querySelector('#taxable-income-summary');
+const taxableIncomeTable = document.querySelector('#taxable-income-table');
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -134,6 +141,13 @@ function saveNetUnitOverrides() {
   });
 }
 
+function saveTaxableIncomeInput() {
+  if (!database) return;
+  writeMetadata(TAXABLE_INCOME_INPUT_KEY, taxableIncomeInput).catch(() => {
+    taxableIncomeStatus.textContent = 'Could not save taxable income entries locally.';
+  });
+}
+
 function parseDate(value) {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -186,6 +200,11 @@ function formatCurrency(value) {
 
 function getAfterTaxValue(value) {
   return value * (1 - TAX_WITHHOLDING_RATE);
+}
+
+function parseCurrencyAmount(value) {
+  const amount = Number(String(value).replace(/[$,\s]/g, ''));
+  return Number.isFinite(amount) ? amount : 0;
 }
 
 function getEffectiveNetShares(calculatedNetShares, override) {
@@ -328,6 +347,139 @@ function getAdjustedSchedule(schedule) {
   });
 
   return adjustedSchedule;
+}
+
+
+function normalizeIncomeCategory(value) {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  const categories = {
+    bonus: 'Bonus',
+    'normal paycheck': 'Normal paycheck',
+    'normal paycheck +rcu': 'Normal paycheck + RCU',
+    'normal paycheck + rcu': 'Normal paycheck + RCU',
+    rsu: 'RSU',
+  };
+
+  return categories[normalized] || value.trim() || 'Uncategorized';
+}
+
+function normalizeIncomeJob(value) {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'j1') return 'J1';
+  if (normalized === 'j2') return 'J2';
+  return value.trim() || 'Unassigned';
+}
+
+function splitCommaFields(line) {
+  const fields = [];
+  let field = '';
+  let isQuoted = false;
+
+  Array.from(line).forEach((character) => {
+    if (character === '"') {
+      isQuoted = !isQuoted;
+      return;
+    }
+    if (character === ',' && !isQuoted) {
+      fields.push(field.trim());
+      field = '';
+      return;
+    }
+    field += character;
+  });
+  fields.push(field.trim());
+
+  return fields;
+}
+
+function parseTaxableIncomeEntries(input) {
+  const entries = [];
+  const errors = [];
+
+  input.split(/\r?\n/).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    const fields = splitCommaFields(trimmed);
+    if (fields.length < 4) {
+      errors.push(`Line ${index + 1} needs date, taxable income, category, and job.`);
+      return;
+    }
+
+    const [dateValue, amountValue, ...remainingFields] = fields;
+    const jobValue = remainingFields.pop();
+    const categoryValue = remainingFields.join(', ');
+    const date = parseDate(dateValue);
+    const amount = parseCurrencyAmount(amountValue);
+
+    if (!date) {
+      errors.push(`Line ${index + 1} has an invalid date.`);
+      return;
+    }
+    if (!amount || amount < 0) {
+      errors.push(`Line ${index + 1} has an invalid taxable income amount.`);
+      return;
+    }
+
+    entries.push({
+      date,
+      dateKey: toDateKey(date),
+      amount,
+      category: normalizeIncomeCategory(categoryValue),
+      job: normalizeIncomeJob(jobValue),
+    });
+  });
+
+  return { entries: entries.sort((a, b) => a.date - b.date), errors };
+}
+
+function renderTaxableIncome() {
+  const { entries, errors } = parseTaxableIncomeEntries(taxableIncomeInput);
+  const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalsByJob = entries.reduce((totals, entry) => {
+    totals[entry.job] = (totals[entry.job] || 0) + entry.amount;
+    return totals;
+  }, {});
+  const totalsByCategory = entries.reduce((totals, entry) => {
+    totals[entry.category] = (totals[entry.category] || 0) + entry.amount;
+    return totals;
+  }, {});
+
+  taxableIncomeTotal.textContent = formatCurrency(total);
+  taxableIncomeStatus.textContent = errors.length > 0
+    ? `${entries.length} valid entr${entries.length === 1 ? 'y' : 'ies'} parsed. ${errors.join(' ')}`
+    : `${entries.length} taxable income entr${entries.length === 1 ? 'y' : 'ies'} parsed and saved locally.`;
+
+  const summaryCards = [
+    ...Object.entries(totalsByJob).map(([label, value]) => ({ label, value, type: toClassToken(label) })),
+    ...Object.entries(totalsByCategory).map(([label, value]) => ({ label, value, type: 'category' })),
+  ];
+
+  taxableIncomeSummary.innerHTML = summaryCards.length === 0
+    ? '<p class="empty-row income-empty-state">Paste comma-separated income rows to calculate totals by job and category.</p>'
+    : summaryCards.map((card) => `
+      <article class="income-summary-card income-${escapeHtml(card.type)}">
+        <span>${escapeHtml(card.label)}</span>
+        <strong>${formatCurrency(card.value)}</strong>
+      </article>
+    `).join('');
+
+  taxableIncomeTable.innerHTML = entries.length === 0
+    ? '<tr><td colspan="4" class="income-table-empty">No taxable income entries yet.</td></tr>'
+    : entries.map((entry) => `
+      <tr class="income-row income-${toClassToken(entry.job)}">
+        <td><time datetime="${entry.dateKey}">${formatDate(entry.date)}</time></td>
+        <td>${formatCurrency(entry.amount)}</td>
+        <td>${escapeHtml(entry.category)}</td>
+        <td><span class="job-pill job-${toClassToken(entry.job)}">${escapeHtml(entry.job)}</span></td>
+      </tr>
+    `).join('');
+}
+
+function updateTaxableIncomeInput(value) {
+  taxableIncomeInput = value;
+  renderTaxableIncome();
+  saveTaxableIncomeInput();
 }
 
 function renderGrantInputs() {
@@ -566,6 +718,10 @@ function removeGrant(id) {
   scheduleSave();
 }
 
+function toClassToken(value) {
+  return String(value).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, '');
+}
+
 function escapeHtml(value) {
   return value.replace(/[&<>'"]/g, (character) => ({
     '&': '&amp;',
@@ -582,9 +738,12 @@ async function initializeApp() {
   const savedStockPrice = await readMetadata(STOCK_PRICE_KEY);
   const savedGrantGrossOverrides = await readMetadata(GRANT_GROSS_OVERRIDES_KEY);
   const savedNetUnitOverrides = await readMetadata(NET_UNIT_OVERRIDES_KEY);
+  const savedTaxableIncomeInput = await readMetadata(TAXABLE_INCOME_INPUT_KEY);
   stockPrice = Number(savedStockPrice) || 0;
   grantGrossOverrides = savedGrantGrossOverrides || {};
   netUnitOverrides = savedNetUnitOverrides || {};
+  taxableIncomeInput = savedTaxableIncomeInput || '';
+  taxableIncomeInputField.value = taxableIncomeInput;
   stockPriceInput.value = stockPrice || '';
   grants = await readGrants();
 
@@ -598,6 +757,7 @@ async function initializeApp() {
   addGrantButton.disabled = false;
   renderGrantInputs();
   renderSchedule();
+  renderTaxableIncome();
 }
 
 function updateStockPrice(value) {
@@ -610,6 +770,7 @@ addGrantButton.disabled = true;
 addGrantButton.addEventListener('click', addGrant);
 resetCorrectionsButton.addEventListener('click', resetManualCorrections);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
+taxableIncomeInputField.addEventListener('input', (event) => updateTaxableIncomeInput(event.target.value));
 scheduleGrid.addEventListener('change', (event) => {
   if (event.target.dataset.action === 'correct-grant-gross') {
     updateGrantGrossOverride(event.target.dataset.grantId, event.target.dataset.vestNumber, event.target.value);
@@ -620,6 +781,8 @@ scheduleGrid.addEventListener('change', (event) => {
 });
 initializeApp().catch(() => {
   databaseStatus.textContent = 'Could not open the local database. Refresh and try again.';
+  grants = DEFAULT_GRANTS;
   renderGrantInputs();
   renderSchedule();
+  renderTaxableIncome();
 });

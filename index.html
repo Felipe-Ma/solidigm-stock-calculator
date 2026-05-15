@@ -90,6 +90,46 @@
         </div>
       </section>
 
+      <section class="panel income-panel">
+        <div class="panel-heading split-heading">
+          <div>
+            <span aria-hidden="true">💵</span>
+            <div>
+              <h2>Taxable income tracker</h2>
+              <p>Paste one paycheck, bonus, RSU, or other taxable event per line using comma-separated fields: date, taxable income, category, job.</p>
+            </div>
+          </div>
+          <div class="income-total-card">
+            <span>Total taxable income</span>
+            <strong id="taxable-income-total">$0</strong>
+          </div>
+        </div>
+
+        <label class="income-input-label">
+          Income entries
+          <textarea
+            id="taxable-income-input"
+            placeholder="2026-01-15, 3500, normal paycheck, j1&#10;2026-02-01, 12000, bonus, j1&#10;2026-02-15, 4200, normal paycheck + rcu, j2&#10;2026-03-01, 8000, rsu, j1"
+          ></textarea>
+        </label>
+        <p class="helper-text" id="taxable-income-status">Enter taxable income rows to see totals by job and category.</p>
+
+        <div class="income-summary-grid" id="taxable-income-summary"></div>
+        <div class="income-table-wrap">
+          <table class="income-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Taxable income</th>
+                <th>Category</th>
+                <th>Job</th>
+              </tr>
+            </thead>
+            <tbody id="taxable-income-table"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="panel schedule-panel">
         <div class="panel-heading split-heading">
           <div>
