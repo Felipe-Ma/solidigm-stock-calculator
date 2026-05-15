@@ -526,6 +526,43 @@ function splitCommaFields(line) {
   return fields;
 }
 
+function getEntrySignature(entry) {
+  return [
+    entry.dateKey,
+    Number(entry.amount).toFixed(2),
+    normalizeIncomeCategory(entry.category || ''),
+    normalizeIncomeJob(entry.job || ''),
+  ].join('|');
+}
+
+function splitNewAndDuplicateEntries(existingEntries, importedEntries) {
+  const seenSignatures = new Set(existingEntries.map(getEntrySignature));
+  const newEntries = [];
+  const duplicateEntries = [];
+
+  importedEntries.forEach((entry) => {
+    const signature = getEntrySignature(entry);
+    if (seenSignatures.has(signature)) {
+      duplicateEntries.push(entry);
+      return;
+    }
+
+    seenSignatures.add(signature);
+    newEntries.push(entry);
+  });
+
+  return { newEntries, duplicateEntries };
+}
+
+function formatImportMessage({ label, newCount, duplicateCount, errors }) {
+  const entryLabel = `${label} entr${newCount === 1 ? 'y' : 'ies'}`;
+  const duplicateText = duplicateCount > 0
+    ? ` Skipped ${duplicateCount} duplicate entr${duplicateCount === 1 ? 'y' : 'ies'} already present in saved data or repeated in the pasted rows.`
+    : '';
+  const errorText = errors.length > 0 ? ` ${errors.join(' ')}` : '';
+  return `Imported ${newCount} new ${entryLabel} from pasted rows.${duplicateText}${errorText}`;
+}
+
 function createTaxableIncomeEntry({ date, amount, category, job, source = 'manual', paycheckNumber }) {
   return {
     id: crypto.randomUUID(),
@@ -835,17 +872,20 @@ function autofillFuturePaychecks() {
 
 function importTaxableIncomeRows() {
   const { entries, errors } = parseTaxableIncomeEntries(taxableIncomeInputField.value);
+  const { newEntries, duplicateEntries } = splitNewAndDuplicateEntries(taxableIncomeEntries, entries);
   if (entries.length > 0) {
-    taxableIncomeEntries = [...taxableIncomeEntries, ...entries];
+    taxableIncomeEntries = [...taxableIncomeEntries, ...newEntries];
     taxableIncomeDraftInput = '';
     taxableIncomeInputField.value = '';
     saveTaxableIncomeDraftInput();
   }
 
-  const message = errors.length > 0
-    ? `Imported ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}. ${errors.join(' ')}`
-    : `Imported ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} from pasted rows.`;
-  persistTaxableIncomeEntries(message);
+  persistTaxableIncomeEntries(formatImportMessage({
+    label: 'taxable income',
+    newCount: newEntries.length,
+    duplicateCount: duplicateEntries.length,
+    errors,
+  }));
 }
 
 function removeTaxableIncomeEntry(id) {
@@ -1200,17 +1240,20 @@ function autofillFutureRetirementContributions() {
 
 function importRetirementContributionRows() {
   const { entries, errors } = parseRetirementContributionEntries(retirementInputField.value);
+  const { newEntries, duplicateEntries } = splitNewAndDuplicateEntries(retirementContributionEntries, entries);
   if (entries.length > 0) {
-    retirementContributionEntries = [...retirementContributionEntries, ...entries];
+    retirementContributionEntries = [...retirementContributionEntries, ...newEntries];
     retirementDraftInput = '';
     retirementInputField.value = '';
     saveRetirementDraftInput();
   }
 
-  const message = errors.length > 0
-    ? `Imported ${entries.length} 401k entr${entries.length === 1 ? 'y' : 'ies'}. ${errors.join(' ')}`
-    : `Imported ${entries.length} 401k entr${entries.length === 1 ? 'y' : 'ies'} from pasted rows.`;
-  persistRetirementContributionEntries(message);
+  persistRetirementContributionEntries(formatImportMessage({
+    label: '401k',
+    newCount: newEntries.length,
+    duplicateCount: duplicateEntries.length,
+    errors,
+  }));
 }
 
 function removeRetirementContributionEntry(id) {
