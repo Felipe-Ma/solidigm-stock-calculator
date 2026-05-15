@@ -93,6 +93,7 @@ const autofillFuturePaychecksButton = document.querySelector('#autofill-future-p
 const futurePaycheckSummary = document.querySelector('#future-paycheck-summary');
 const futureIncomeList = document.querySelector('#future-income-list');
 const futureIncomeListSummary = document.querySelector('#future-income-list-summary');
+const paycheckScheduleGrid = document.querySelector('#paycheck-schedule-grid');
 const clearAutofillPaychecksButton = document.querySelector('#clear-autofill-paychecks');
 const resetFutureIncomeButton = document.querySelector('#reset-future-income');
 const resetFutureIncomeInlineButton = document.querySelector('#reset-future-income-inline');
@@ -577,6 +578,7 @@ function renderTaxableIncome(message) {
   taxableIncomeJsonOutput.value = getIncomeJson();
   futurePaycheckSummary.textContent = getFuturePaycheckSummary();
   renderFutureIncomeList();
+  renderPaycheckScheduleBoxes();
   taxableIncomeStatus.textContent = message || `${taxableIncomeEntries.length} taxable income entr${taxableIncomeEntries.length === 1 ? 'y' : 'ies'} saved locally as JSON.`;
 
   const summaryCards = Object.entries(totals.byCategory).map(([label, value]) => ({ label, value, type: 'category' }));
@@ -608,6 +610,51 @@ function renderTaxableIncome(message) {
     }).join('');
 }
 
+
+
+function getPaycheckDateStatus(dateKey) {
+  const date = parseDate(dateKey);
+  const today = startOfToday();
+  if (date < today) return 'past';
+  if (date.getTime() === today.getTime()) return 'today';
+  return 'future';
+}
+
+function renderPaycheckScheduleBoxes() {
+  paycheckScheduleGrid.innerHTML = PAYCHECK_SCHEDULE_2026.map((paycheck) => {
+    const date = parseDate(paycheck.dateKey);
+    const status = getPaycheckDateStatus(paycheck.dateKey);
+    const entries = taxableIncomeEntries
+      .filter((entry) => entry.dateKey === paycheck.dateKey)
+      .sort((a, b) => a.job.localeCompare(b.job) || a.category.localeCompare(b.category));
+    const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
+
+    return `
+      <article class="paycheck-date-card paycheck-${status}">
+        <div class="paycheck-date-header">
+          <div>
+            <span>Paycheck ${paycheck.paycheckNumber}</span>
+            <time datetime="${paycheck.dateKey}">${formatDate(date)}</time>
+          </div>
+          <strong>${formatCurrency(total)}</strong>
+        </div>
+        <span class="paycheck-status-pill">${status === 'today' ? 'Today' : status}</span>
+        <div class="paycheck-entry-list">
+          ${entries.length === 0
+    ? '<p class="empty-row paycheck-empty-state">No entries for this date yet.</p>'
+    : entries.map((entry) => `
+            <div class="paycheck-entry income-${toClassToken(entry.job)}">
+              <span>${escapeHtml(entry.job)} · ${escapeHtml(entry.category)}</span>
+              <strong>${formatCurrency(entry.amount)}</strong>
+              <button class="text-button" type="button" data-action="remove-income-entry" data-entry-id="${entry.id}">Remove</button>
+            </div>
+          `).join('')}
+        </div>
+        <button class="text-button use-date-button" type="button" data-action="use-paycheck-date" data-date-key="${paycheck.dateKey}">Use this date</button>
+      </article>
+    `;
+  }).join('');
+}
 
 function renderFutureIncomeList() {
   const futureEntries = getFutureIncomeEntries();
@@ -1124,6 +1171,11 @@ scheduleGrid.addEventListener('change', (event) => {
 document.querySelector('#income-panel').addEventListener('click', (event) => {
   if (event.target.dataset.action === 'remove-income-entry') {
     removeTaxableIncomeEntry(event.target.dataset.entryId);
+  }
+  if (event.target.dataset.action === 'use-paycheck-date') {
+    incomeDateInput.value = event.target.dataset.dateKey;
+    incomeAmountInput.focus();
+    renderTaxableIncome(`Selected ${formatDate(parseDate(event.target.dataset.dateKey))} for the next taxable income entry.`);
   }
 });
 initializeApp().catch(() => {
