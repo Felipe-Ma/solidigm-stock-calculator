@@ -5,7 +5,7 @@ const METADATA_STORE = 'metadata';
 const QUARTERS_IN_LTI_PLAN = 16;
 const STOCK_PRICE_KEY = 'stockPrice';
 const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
-const GRANT_NET_OVERRIDES_KEY = 'grantNetOverrides';
+const NET_UNIT_OVERRIDES_KEY = 'netUnitOverrides';
 const TAX_WITHHOLDING_RATE = 0.415;
 
 const DEFAULT_GRANTS = [
@@ -18,7 +18,7 @@ let database;
 let saveTimer;
 let stockPrice = 0;
 let grantGrossOverrides = {};
-let grantNetOverrides = {};
+let netUnitOverrides = {};
 
 const databaseStatus = document.querySelector('#database-status');
 const grantList = document.querySelector('#grant-list');
@@ -127,10 +127,10 @@ function saveGrantGrossOverrides() {
   });
 }
 
-function saveGrantNetOverrides() {
+function saveNetUnitOverrides() {
   if (!database) return;
-  writeMetadata(GRANT_NET_OVERRIDES_KEY, grantNetOverrides).catch(() => {
-    databaseStatus.textContent = 'Could not save grant post-tax correction locally.';
+  writeMetadata(NET_UNIT_OVERRIDES_KEY, netUnitOverrides).catch(() => {
+    databaseStatus.textContent = 'Could not save post-tax unit correction locally.';
   });
 }
 
@@ -192,8 +192,33 @@ function getEffectiveNetShares(calculatedNetShares, override) {
   return override === undefined || override === '' ? calculatedNetShares : parseShareAmount(override);
 }
 
+function parseWholeShareAmount(value) {
+  return Math.max(Math.round(parseShareAmount(value)), 0);
+}
+
 function toGrantOverrideKey(grantId, vestNumber) {
   return `${grantId}:${vestNumber}`;
+}
+
+function distributeWholeShares(entries, sharesToDistribute) {
+  const targetTotal = parseWholeShareAmount(sharesToDistribute);
+  const calculatedTotal = entries.reduce((sum, entry) => sum + entry.calculatedAmount, 0);
+
+  if (entries.length === 0 || calculatedTotal <= 0) return;
+
+  const allocations = entries.map((entry) => {
+    const rawAmount = targetTotal * (entry.calculatedAmount / calculatedTotal);
+    const amount = Math.floor(rawAmount);
+    return { entry, amount, remainder: rawAmount - amount };
+  });
+  let unitsRemaining = targetTotal - allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
+
+  allocations
+    .sort((a, b) => b.remainder - a.remainder || a.entry.date - b.entry.date)
+    .forEach((allocation) => {
+      allocation.entry.amount = allocation.amount + (unitsRemaining > 0 ? 1 : 0);
+      unitsRemaining -= unitsRemaining > 0 ? 1 : 0;
+    });
 }
 
 function startOfToday() {
@@ -255,7 +280,7 @@ function getAdjustedSchedule(schedule) {
         rowIndex,
         grantIndex,
         calculatedAmount: grant.calculatedAmount,
-        amount: hasGrossOverride ? parseShareAmount(grossOverride) : grant.calculatedAmount,
+        amount: hasGrossOverride ? parseWholeShareAmount(grossOverride) : grant.calculatedAmount,
         isLocked: hasGrossOverride,
       };
 
@@ -278,9 +303,7 @@ function getAdjustedSchedule(schedule) {
     const sharesToDistribute = Math.max(totalShares - lockedTotal, 0);
 
     if (unlockedEntries.length > 0 && unlockedCalculatedTotal > 0) {
-      unlockedEntries.forEach((entry) => {
-        entry.amount = sharesToDistribute * (entry.calculatedAmount / unlockedCalculatedTotal);
-      });
+      distributeWholeShares(unlockedEntries, sharesToDistribute);
     }
 
     let vestedToDate = 0;
@@ -295,15 +318,13 @@ function getAdjustedSchedule(schedule) {
           ? Math.max(((totalShares - vestedToDate) / totalShares) * 100, 0)
           : 0;
         grant.expectedNetAmount = getAfterTaxValue(entry.amount);
-        const netOverride = grantNetOverrides[toGrantOverrideKey(grant.id, grant.vestNumber)];
-        grant.netAmount = getEffectiveNetShares(grant.expectedNetAmount, netOverride);
       });
   });
 
   adjustedSchedule.forEach((row) => {
     row.total = row.grants.reduce((sum, grant) => sum + grant.amount, 0);
     row.expectedNetTotal = getAfterTaxValue(row.total);
-    row.netTotal = row.grants.reduce((sum, grant) => sum + grant.netAmount, 0);
+    row.netTotal = getEffectiveNetShares(row.expectedNetTotal, netUnitOverrides[toDateKey(row.date)]);
   });
 
   return adjustedSchedule;
@@ -373,6 +394,7 @@ function renderSchedule() {
   periodList.className = 'payout-period-list';
   periodList.innerHTML = schedule.map((row, index) => {
     const dateKey = toDateKey(row.date);
+    const netOverride = netUnitOverrides[dateKey];
     const calculatedGrossShares = row.calculatedTotal;
     const effectiveGrossShares = row.total;
     const expectedNetShares = row.expectedNetTotal;
@@ -411,6 +433,18 @@ function renderSchedule() {
             <span>Expected post-tax</span>
             <strong>${formatShares(expectedNetShares)}</strong>
           </div>
+          <label class="payout-summary-item net-override-item">
+            <span>Correct post-tax units</span>
+            <input
+              data-action="correct-net-payout"
+              data-date-key="${dateKey}"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="${formatShares(expectedNetShares)}"
+              value="${netOverride ?? ''}"
+            />
+          </label>
           <div class="payout-summary-item withholding-item">
             <span>Units withheld</span>
             <strong>${formatShares(taxWithheldShares)}</strong>
@@ -456,7 +490,7 @@ function renderSchedule() {
                     data-grant-id="${grant.id}"
                     data-vest-number="${grant.vestNumber}"
                     type="number"
-                    step="0.01"
+                    step="1"
                     min="0"
                     placeholder="${formatShares(grant.calculatedAmount)}"
                     value="${grantGrossOverrides[toGrantOverrideKey(grant.id, grant.vestNumber)] ?? ''}"
@@ -464,20 +498,6 @@ function renderSchedule() {
                 </label>
                 <span>${formatShares(grant.amount)} adjusted gross</span>
                 <span>${formatShares(grant.expectedNetAmount)} expected net</span>
-                <label class="grant-override-field">
-                  Correct net
-                  <input
-                    data-action="correct-grant-net"
-                    data-grant-id="${grant.id}"
-                    data-vest-number="${grant.vestNumber}"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="${formatShares(grant.expectedNetAmount)}"
-                    value="${grantNetOverrides[toGrantOverrideKey(grant.id, grant.vestNumber)] ?? ''}"
-                  />
-                </label>
-                <span>${formatShares(grant.netAmount)} adjusted net</span>
                 <span class="remaining-percent">${formatShares(grant.remainingPercentage)}% remaining</span>
               </div>
             `).join('')}
@@ -509,25 +529,24 @@ function updateGrantGrossOverride(grantId, vestNumber, value) {
   saveGrantGrossOverrides();
 }
 
-function updateGrantNetOverride(grantId, vestNumber, value) {
-  const overrideKey = toGrantOverrideKey(grantId, vestNumber);
-  grantNetOverrides = { ...grantNetOverrides };
+function updateNetUnitOverride(dateKey, value) {
+  netUnitOverrides = { ...netUnitOverrides };
   if (value === '') {
-    delete grantNetOverrides[overrideKey];
+    delete netUnitOverrides[dateKey];
   } else {
-    grantNetOverrides[overrideKey] = value;
+    netUnitOverrides[dateKey] = value;
   }
 
   renderSchedule();
-  saveGrantNetOverrides();
+  saveNetUnitOverrides();
 }
 
 function resetManualCorrections() {
   grantGrossOverrides = {};
-  grantNetOverrides = {};
+  netUnitOverrides = {};
   renderSchedule();
   saveGrantGrossOverrides();
-  saveGrantNetOverrides();
+  saveNetUnitOverrides();
 }
 
 function addGrant() {
@@ -562,10 +581,10 @@ async function initializeApp() {
   const hasInitialized = await readMetadata('initialized');
   const savedStockPrice = await readMetadata(STOCK_PRICE_KEY);
   const savedGrantGrossOverrides = await readMetadata(GRANT_GROSS_OVERRIDES_KEY);
-  const savedGrantNetOverrides = await readMetadata(GRANT_NET_OVERRIDES_KEY);
+  const savedNetUnitOverrides = await readMetadata(NET_UNIT_OVERRIDES_KEY);
   stockPrice = Number(savedStockPrice) || 0;
   grantGrossOverrides = savedGrantGrossOverrides || {};
-  grantNetOverrides = savedGrantNetOverrides || {};
+  netUnitOverrides = savedNetUnitOverrides || {};
   stockPriceInput.value = stockPrice || '';
   grants = await readGrants();
 
@@ -595,8 +614,8 @@ scheduleGrid.addEventListener('change', (event) => {
   if (event.target.dataset.action === 'correct-grant-gross') {
     updateGrantGrossOverride(event.target.dataset.grantId, event.target.dataset.vestNumber, event.target.value);
   }
-  if (event.target.dataset.action === 'correct-grant-net') {
-    updateGrantNetOverride(event.target.dataset.grantId, event.target.dataset.vestNumber, event.target.value);
+  if (event.target.dataset.action === 'correct-net-payout') {
+    updateNetUnitOverride(event.target.dataset.dateKey, event.target.value);
   }
 });
 initializeApp().catch(() => {
