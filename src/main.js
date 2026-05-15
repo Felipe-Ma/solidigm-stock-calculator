@@ -4,7 +4,7 @@ const GRANT_STORE = 'grants';
 const METADATA_STORE = 'metadata';
 const QUARTERS_IN_LTI_PLAN = 16;
 const STOCK_PRICE_KEY = 'stockPrice';
-const GROSS_UNIT_OVERRIDES_KEY = 'grossUnitOverrides';
+const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
 const NET_UNIT_OVERRIDES_KEY = 'netUnitOverrides';
 const TAX_WITHHOLDING_RATE = 0.415;
 
@@ -17,7 +17,7 @@ let grants = [];
 let database;
 let saveTimer;
 let stockPrice = 0;
-let grossUnitOverrides = {};
+let grantGrossOverrides = {};
 let netUnitOverrides = {};
 
 const databaseStatus = document.querySelector('#database-status');
@@ -115,10 +115,10 @@ function saveStockPrice() {
   });
 }
 
-function saveGrossUnitOverrides() {
+function saveGrantGrossOverrides() {
   if (!database) return;
-  writeMetadata(GROSS_UNIT_OVERRIDES_KEY, grossUnitOverrides).catch(() => {
-    databaseStatus.textContent = 'Could not save gross unit correction locally.';
+  writeMetadata(GRANT_GROSS_OVERRIDES_KEY, grantGrossOverrides).catch(() => {
+    databaseStatus.textContent = 'Could not save grant gross correction locally.';
   });
 }
 
@@ -187,6 +187,10 @@ function getEffectiveNetShares(calculatedNetShares, override) {
   return override === undefined || override === '' ? calculatedNetShares : parseShareAmount(override);
 }
 
+function toGrantOverrideKey(grantId, vestNumber) {
+  return `${grantId}:${vestNumber}`;
+}
+
 function startOfToday() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -237,20 +241,16 @@ function getAdjustedSchedule(schedule) {
   const entriesByGrant = new Map();
 
   adjustedSchedule.forEach((row, rowIndex) => {
-    const dateKey = toDateKey(row.date);
-    const grossOverride = grossUnitOverrides[dateKey];
-    const hasGrossOverride = grossOverride !== undefined && grossOverride !== '';
-    const rowScale = hasGrossOverride && row.calculatedTotal > 0
-      ? parseShareAmount(grossOverride) / row.calculatedTotal
-      : 1;
-
     row.grants.forEach((grant, grantIndex) => {
+      const overrideKey = toGrantOverrideKey(grant.id, grant.vestNumber);
+      const grossOverride = grantGrossOverrides[overrideKey];
+      const hasGrossOverride = grossOverride !== undefined && grossOverride !== '';
       const entry = {
         date: row.date,
         rowIndex,
         grantIndex,
         calculatedAmount: grant.calculatedAmount,
-        amount: hasGrossOverride ? grant.calculatedAmount * rowScale : grant.calculatedAmount,
+        amount: hasGrossOverride ? parseShareAmount(grossOverride) : grant.calculatedAmount,
         isLocked: hasGrossOverride,
       };
 
@@ -362,7 +362,6 @@ function renderSchedule() {
   periodList.className = 'payout-period-list';
   periodList.innerHTML = schedule.map((row, index) => {
     const dateKey = toDateKey(row.date);
-    const grossOverride = grossUnitOverrides[dateKey];
     const netOverride = netUnitOverrides[dateKey];
     const calculatedGrossShares = row.calculatedTotal;
     const effectiveGrossShares = row.total;
@@ -394,18 +393,6 @@ function renderSchedule() {
             <span>Calculated gross</span>
             <strong>${formatShares(calculatedGrossShares)}</strong>
           </div>
-          <label class="payout-summary-item gross-override-item">
-            <span>Correct gross units</span>
-            <input
-              data-action="correct-gross-payout"
-              data-date-key="${dateKey}"
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="${formatShares(calculatedGrossShares)}"
-              value="${grossOverride ?? ''}"
-            />
-          </label>
           <div class="payout-summary-item">
             <span>Adjusted gross</span>
             <strong>${formatShares(effectiveGrossShares)}</strong>
@@ -464,6 +451,19 @@ function renderSchedule() {
                 <span class="grant-name">${escapeHtml(grant.label)}</span>
                 <span>Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
                 <span>${formatShares(grant.calculatedAmount)} calc. gross</span>
+                <label class="grant-override-field">
+                  Correct gross
+                  <input
+                    data-action="correct-grant-gross"
+                    data-grant-id="${grant.id}"
+                    data-vest-number="${grant.vestNumber}"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="${formatShares(grant.calculatedAmount)}"
+                    value="${grantGrossOverrides[toGrantOverrideKey(grant.id, grant.vestNumber)] ?? ''}"
+                  />
+                </label>
                 <span>${formatShares(grant.amount)} adjusted gross</span>
                 <span class="remaining-percent">${formatShares(grant.remainingPercentage)}% remaining</span>
               </div>
@@ -483,16 +483,17 @@ function updateGrant(id, field, value) {
   scheduleSave();
 }
 
-function updateGrossUnitOverride(dateKey, value) {
-  grossUnitOverrides = { ...grossUnitOverrides };
+function updateGrantGrossOverride(grantId, vestNumber, value) {
+  const overrideKey = toGrantOverrideKey(grantId, vestNumber);
+  grantGrossOverrides = { ...grantGrossOverrides };
   if (value === '') {
-    delete grossUnitOverrides[dateKey];
+    delete grantGrossOverrides[overrideKey];
   } else {
-    grossUnitOverrides[dateKey] = value;
+    grantGrossOverrides[overrideKey] = value;
   }
 
   renderSchedule();
-  saveGrossUnitOverrides();
+  saveGrantGrossOverrides();
 }
 
 function updateNetUnitOverride(dateKey, value) {
@@ -538,10 +539,10 @@ async function initializeApp() {
   database = await openDatabase();
   const hasInitialized = await readMetadata('initialized');
   const savedStockPrice = await readMetadata(STOCK_PRICE_KEY);
-  const savedGrossUnitOverrides = await readMetadata(GROSS_UNIT_OVERRIDES_KEY);
+  const savedGrantGrossOverrides = await readMetadata(GRANT_GROSS_OVERRIDES_KEY);
   const savedNetUnitOverrides = await readMetadata(NET_UNIT_OVERRIDES_KEY);
   stockPrice = Number(savedStockPrice) || 0;
-  grossUnitOverrides = savedGrossUnitOverrides || {};
+  grantGrossOverrides = savedGrantGrossOverrides || {};
   netUnitOverrides = savedNetUnitOverrides || {};
   stockPriceInput.value = stockPrice || '';
   grants = await readGrants();
@@ -568,8 +569,8 @@ addGrantButton.disabled = true;
 addGrantButton.addEventListener('click', addGrant);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
 scheduleGrid.addEventListener('change', (event) => {
-  if (event.target.dataset.action === 'correct-gross-payout') {
-    updateGrossUnitOverride(event.target.dataset.dateKey, event.target.value);
+  if (event.target.dataset.action === 'correct-grant-gross') {
+    updateGrantGrossOverride(event.target.dataset.grantId, event.target.dataset.vestNumber, event.target.value);
   }
   if (event.target.dataset.action === 'correct-net-payout') {
     updateNetUnitOverride(event.target.dataset.dateKey, event.target.value);
