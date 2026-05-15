@@ -32,6 +32,7 @@
         <div class="tab-list" role="tablist" aria-label="Calculator tabs">
           <button class="tab-button is-active" type="button" id="stock-tab" role="tab" aria-selected="true" aria-controls="stock-panel" data-tab-target="stock-panel">Stock calculator</button>
           <button class="tab-button" type="button" id="income-tab" role="tab" aria-selected="false" aria-controls="income-panel" data-tab-target="income-panel">Taxable income</button>
+          <button class="tab-button" type="button" id="retirement-tab" role="tab" aria-selected="false" aria-controls="retirement-panel" data-tab-target="retirement-panel">401k contributions</button>
         </div>
       </section>
 
@@ -261,6 +262,176 @@
           <label class="income-json-label">
             Saved JSON for VS Code
             <textarea id="taxable-income-json" readonly></textarea>
+          </label>
+        </section>
+      </div>
+
+      <div class="tab-panel" id="retirement-panel" role="tabpanel" aria-labelledby="retirement-tab" hidden>
+        <section class="panel income-panel retirement-panel">
+          <div class="panel-heading split-heading">
+            <div>
+              <span aria-hidden="true">🏦</span>
+              <div>
+                <h2>401k contribution tracker</h2>
+                <p>Add current and future 401k contributions for J1 and J2. Entries are saved locally, can be exported to data/401k-contributions.json for commits, and are checked against the $24,500 yearly cap.</p>
+              </div>
+            </div>
+            <div class="income-action-row">
+              <button class="secondary-button" type="button" id="copy-retirement-json">Copy repo JSON</button>
+              <button class="secondary-button subtle-button" type="button" id="download-retirement-json">Download repo JSON</button>
+              <button class="reset-button" type="button" id="reset-all-retirement">Reset all entries</button>
+            </div>
+          </div>
+
+          <div class="income-total-grid" aria-label="401k contribution totals">
+            <article class="income-total-card income-j1">
+              <span>J1 401k contributions</span>
+              <strong id="retirement-j1-total">$0</strong>
+            </article>
+            <article class="income-total-card income-j2">
+              <span>J2 401k contributions</span>
+              <strong id="retirement-j2-total">$0</strong>
+            </article>
+            <article class="income-total-card income-total">
+              <span>Total 401k contributions</span>
+              <strong id="retirement-total">$0</strong>
+            </article>
+          </div>
+
+          <div class="income-total-grid future-income-grid" aria-label="Future 401k contribution totals">
+            <article class="income-total-card income-j1">
+              <span>Future J1 401k</span>
+              <strong id="future-retirement-j1-total">$0</strong>
+            </article>
+            <article class="income-total-card income-j2">
+              <span>Future J2 401k</span>
+              <strong id="future-retirement-j2-total">$0</strong>
+            </article>
+            <article class="income-total-card income-total">
+              <span>Future total 401k</span>
+              <strong id="future-retirement-total">$0</strong>
+            </article>
+          </div>
+
+          <div class="income-total-grid retirement-cap-grid" aria-label="401k yearly cap status">
+            <article class="income-total-card retirement-cap-card">
+              <span>2026 yearly cap</span>
+              <strong id="retirement-yearly-cap">$24,500</strong>
+            </article>
+            <article class="income-total-card retirement-cap-card">
+              <span>2026 contributions used</span>
+              <strong id="retirement-current-year-total">$0</strong>
+            </article>
+            <article class="income-total-card retirement-cap-card" id="retirement-cap-status-card">
+              <span>2026 cap remaining</span>
+              <strong id="retirement-cap-remaining">$24,500</strong>
+            </article>
+          </div>
+
+          <section class="income-autofill-card" aria-label="Future 401k contribution autofill">
+            <div>
+              <h3>Autofill future 2026 401k contributions</h3>
+              <p>Enter the expected 401k contribution for each future paycheck. The app creates future normal-paycheck contribution entries for J1 and J2 and keeps the same JSON shape as taxable income entries.</p>
+            </div>
+            <div class="income-baseline-grid">
+              <label>
+                J1 401k per future paycheck
+                <input id="retirement-baseline-j1" type="number" min="0" step="0.01" placeholder="0.00" />
+              </label>
+              <label>
+                J2 401k per future paycheck
+                <input id="retirement-baseline-j2" type="number" min="0" step="0.01" placeholder="0.00" />
+              </label>
+              <button class="secondary-button" type="button" id="autofill-future-retirement">Autofill future 401k</button>
+              <button class="reset-button" type="button" id="clear-autofill-retirement">Clear autofill</button>
+              <button class="reset-button" type="button" id="reset-future-retirement">Reset future entries</button>
+            </div>
+            <p class="helper-text" id="future-retirement-summary">Uses 24 scheduled 2026 pay dates from Jan 15 through Dec 31.</p>
+          </section>
+
+          <section class="paycheck-schedule-section" aria-label="2026 401k paycheck contribution boxes">
+            <div class="future-income-heading">
+              <div>
+                <h3>2026 401k contribution date boxes</h3>
+                <p>All scheduled paycheck dates are shown here. 401k entries you add or import with matching dates will appear inside the matching box.</p>
+              </div>
+            </div>
+            <div class="paycheck-schedule-grid" id="retirement-paycheck-schedule-grid"></div>
+          </section>
+
+          <form class="income-entry-form" id="retirement-entry-form">
+            <label>
+              Date
+              <input id="retirement-date" type="date" required />
+            </label>
+            <label>
+              401k contribution
+              <input id="retirement-amount" type="number" min="0" step="0.01" placeholder="500.00" required />
+            </label>
+            <label>
+              Category
+              <select id="retirement-category">
+                <option value="Normal paycheck">Normal paycheck</option>
+                <option value="Bonus">Bonus</option>
+                <option value="Normal paycheck + RCU">Normal paycheck + RCU</option>
+                <option value="RSU">RSU</option>
+              </select>
+            </label>
+            <label>
+              Job
+              <select id="retirement-job">
+                <option value="J1">J1</option>
+                <option value="J2">J2</option>
+              </select>
+            </label>
+            <button class="secondary-button" type="submit">＋ Save entry</button>
+          </form>
+
+          <details class="income-import-details">
+            <summary>Bulk paste comma-separated 401k entries</summary>
+            <label class="income-input-label">
+              One row per 401k contribution: date, contribution amount, category, job
+              <textarea
+                id="retirement-input"
+                placeholder="2026-01-15, 500, normal paycheck, j1&#10;2026-02-01, 3000, bonus, j1&#10;2026-02-15, 400, normal paycheck, j2"
+              ></textarea>
+            </label>
+            <button class="secondary-button" type="button" id="import-retirement-rows">Import pasted rows</button>
+          </details>
+
+          <p class="helper-text" id="retirement-status">Add 401k contribution entries to see totals by J1, J2, and category.</p>
+
+          <section class="future-income-section" aria-label="Future 401k contribution entries">
+            <div class="future-income-heading">
+              <div>
+                <h3>Future 401k contribution entries</h3>
+                <p id="future-retirement-list-summary">No future 401k contribution entries yet.</p>
+              </div>
+              <button class="reset-button" type="button" id="reset-future-retirement-inline">Reset future entries</button>
+            </div>
+            <div class="future-income-list" id="future-retirement-list"></div>
+          </section>
+
+          <div class="income-summary-grid" id="retirement-summary"></div>
+          <div class="income-table-wrap">
+            <table class="income-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>401k contribution</th>
+                  <th>Category</th>
+                  <th>Job</th>
+                  <th>Source</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="retirement-table"></tbody>
+            </table>
+          </div>
+
+          <label class="income-json-label">
+            Saved 401k repo JSON (data/401k-contributions.json)
+            <textarea id="retirement-json" readonly></textarea>
           </label>
         </section>
       </div>
