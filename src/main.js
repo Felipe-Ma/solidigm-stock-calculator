@@ -4,17 +4,19 @@ const GRANT_STORE = 'grants';
 const METADATA_STORE = 'metadata';
 const QUARTERS_IN_LTI_PLAN = 16;
 const STOCK_PRICE_KEY = 'stockPrice';
+const PAYOUT_CORRECTIONS_KEY = 'payoutCorrections';
 const TAX_WITHHOLDING_RATE = 0.415;
 
 const DEFAULT_GRANTS = [
-  { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', firstVestDate: '2025-01-30', vestCorrections: {} },
-  { id: crypto.randomUUID(), label: 'Grant B', shares: '800', firstVestDate: '2025-04-30', vestCorrections: {} },
+  { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', firstVestDate: '2025-01-30' },
+  { id: crypto.randomUUID(), label: 'Grant B', shares: '800', firstVestDate: '2025-04-30' },
 ];
 
 let grants = [];
 let database;
 let saveTimer;
 let stockPrice = 0;
+let payoutCorrections = {};
 
 const databaseStatus = document.querySelector('#database-status');
 const grantList = document.querySelector('#grant-list');
@@ -111,6 +113,13 @@ function saveStockPrice() {
   });
 }
 
+function savePayoutCorrections() {
+  if (!database) return;
+  writeMetadata(PAYOUT_CORRECTIONS_KEY, payoutCorrections).catch(() => {
+    databaseStatus.textContent = 'Could not save payout correction locally.';
+  });
+}
+
 function parseDate(value) {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -152,11 +161,6 @@ function formatShares(value) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
 }
 
-function formatSignedShares(value) {
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${formatShares(value)}`;
-}
-
 function parseShareAmount(value) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : 0;
@@ -195,18 +199,12 @@ function getSchedule() {
       if (!rowsByDate.has(key)) rowsByDate.set(key, { date, total: 0, grants: [] });
 
       const vestNumber = index + 1;
-      const correction = parseShareAmount(grant.vestCorrections?.[vestNumber]);
-      const effectiveAmount = sharesPerQuarter + correction;
       const row = rowsByDate.get(key);
-      row.total += effectiveAmount;
+      row.total += sharesPerQuarter;
       row.grants.push({
-        id: grant.id,
         label: grant.label || 'Untitled grant',
-        amount: effectiveAmount,
-        baseAmount: sharesPerQuarter,
-        correction,
+        amount: sharesPerQuarter,
         vestNumber,
-        remainingPercentage: ((QUARTERS_IN_LTI_PLAN - vestNumber) / QUARTERS_IN_LTI_PLAN) * 100,
       });
     });
   });
@@ -245,13 +243,18 @@ function renderGrantInputs() {
 
 function renderSchedule() {
   const schedule = getSchedule();
-  const totalShares = schedule.reduce((sum, row) => sum + row.total, 0);
-  const estimatedGrossValue = totalShares * stockPrice;
+  const totalGrossShares = schedule.reduce((sum, row) => sum + row.total, 0);
+  const totalNetShares = schedule.reduce((sum, row) => {
+    const correction = parseShareAmount(payoutCorrections[toDateKey(row.date)]);
+    return sum + getAfterTaxValue(row.total) + correction;
+  }, 0);
   const nextRow = schedule.find((row) => row.date >= startOfToday()) || schedule[0];
+  const nextRowCorrection = nextRow ? parseShareAmount(payoutCorrections[toDateKey(nextRow.date)]) : 0;
+  const nextNetShares = nextRow ? getAfterTaxValue(nextRow.total) + nextRowCorrection : 0;
 
-  grandTotal.textContent = formatShares(totalShares);
-  totalValue.textContent = formatCurrency(getAfterTaxValue(estimatedGrossValue));
-  nextVestValue.textContent = formatCurrency(getAfterTaxValue((nextRow?.total || 0) * stockPrice));
+  grandTotal.textContent = formatShares(totalGrossShares);
+  totalValue.textContent = formatCurrency(totalNetShares * stockPrice);
+  nextVestValue.textContent = formatCurrency(nextNetShares * stockPrice);
   scheduleGrid.replaceChildren();
 
   if (schedule.length === 0) {
@@ -262,37 +265,71 @@ function renderSchedule() {
     return;
   }
 
-  let runningShares = 0;
+  let runningGrossShares = 0;
+  let runningNetShares = 0;
   const periodList = document.createElement('div');
   periodList.className = 'payout-period-list';
   periodList.innerHTML = schedule.map((row, index) => {
-    runningShares += row.total;
-    const grossValue = row.total * stockPrice;
-    const withheldValue = grossValue * TAX_WITHHOLDING_RATE;
-    const netValue = getAfterTaxValue(grossValue);
-    const runningGrossValue = runningShares * stockPrice;
-    const runningNetValue = getAfterTaxValue(runningGrossValue);
+    const dateKey = toDateKey(row.date);
+    const correction = parseShareAmount(payoutCorrections[dateKey]);
+    const grossShares = row.total;
+    const expectedNetShares = getAfterTaxValue(grossShares);
+    const correctedNetShares = expectedNetShares + correction;
+    const taxWithheldShares = grossShares * TAX_WITHHOLDING_RATE;
+    const grossValue = grossShares * stockPrice;
+    const withheldValue = taxWithheldShares * stockPrice;
+    const netValue = correctedNetShares * stockPrice;
+
+    runningGrossShares += grossShares;
+    runningNetShares += correctedNetShares;
 
     return `
       <article class="payout-card">
         <div class="payout-card-header">
           <div>
             <strong class="payout-period">Period ${index + 1}</strong>
-            <time datetime="${toDateKey(row.date)}">${formatDate(row.date)}</time>
+            <time datetime="${dateKey}">${formatDate(row.date)}</time>
           </div>
           <div class="combined-payout">
-            <span>${formatShares(row.total)} shares</span>
-            <small>combined payout from ${row.grants.length} grant${row.grants.length === 1 ? '' : 's'}</small>
+            <span>${formatShares(correctedNetShares)} net units</span>
+            <small>${formatShares(grossShares)} gross units from ${row.grants.length} grant${row.grants.length === 1 ? '' : 's'}</small>
           </div>
         </div>
 
         <div class="payout-summary-grid" aria-label="Payout period totals">
           <div class="payout-summary-item">
+            <span>Gross units</span>
+            <strong>${formatShares(grossShares)}</strong>
+          </div>
+          <div class="payout-summary-item withholding-item">
+            <span>41.5% tax withheld</span>
+            <strong>−${formatShares(taxWithheldShares)}</strong>
+          </div>
+          <div class="payout-summary-item net-item">
+            <span>Post-tax units</span>
+            <strong>${formatShares(expectedNetShares)}</strong>
+          </div>
+          <label class="payout-summary-item correction-item">
+            <span>Post-tax correction</span>
+            <input
+              data-action="correct-payout"
+              data-date-key="${dateKey}"
+              type="number"
+              step="0.01"
+              placeholder="0"
+              value="${correction || ''}"
+            />
+          </label>
+          <div class="payout-summary-item net-item">
+            <span>Corrected net units</span>
+            <strong>${formatShares(correctedNetShares)}</strong>
+          </div>
+          <div class="payout-summary-item">
             <span>Gross value</span>
             <strong>${formatCurrency(grossValue)}</strong>
           </div>
           <div class="payout-summary-item withholding-item">
-            <span>41.5% tax withheld</span>
+            <span>Tax value withheld</span>
             <strong>−${formatCurrency(withheldValue)}</strong>
           </div>
           <div class="payout-summary-item net-item">
@@ -300,37 +337,23 @@ function renderSchedule() {
             <strong>${formatCurrency(netValue)}</strong>
           </div>
           <div class="payout-summary-item running-item">
-            <span>Running shares</span>
-            <strong>${formatShares(runningShares)}</strong>
+            <span>Running gross units</span>
+            <strong>${formatShares(runningGrossShares)}</strong>
           </div>
           <div class="payout-summary-item running-item">
-            <span>Running net value</span>
-            <strong>${formatCurrency(runningNetValue)}</strong>
+            <span>Running net units</span>
+            <strong>${formatShares(runningNetShares)}</strong>
           </div>
         </div>
 
         <details class="grant-breakdown-details">
-          <summary>Adjust individual grant vests</summary>
+          <summary>View grant sources</summary>
           <div class="grant-breakdown">
             ${row.grants.map((grant) => `
               <div class="grant-vest-line">
                 <span class="grant-name">${escapeHtml(grant.label)}</span>
                 <span>Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
-                <span>Base ${formatShares(grant.baseAmount)}</span>
-                <label class="correction-field">
-                  Correction
-                  <input
-                    data-action="correct-vest"
-                    data-grant-id="${grant.id}"
-                    data-vest-number="${grant.vestNumber}"
-                    type="number"
-                    step="0.01"
-                    placeholder="0"
-                    value="${grant.correction || ''}"
-                  />
-                </label>
-                <span class="corrected-shares">${formatShares(grant.amount)} shares</span>
-                ${grant.correction ? `<span class="correction-note">${formatSignedShares(grant.correction)} share correction</span>` : ''}
+                <span>${formatShares(grant.amount)} gross units</span>
               </div>
             `).join('')}
           </div>
@@ -348,27 +371,22 @@ function updateGrant(id, field, value) {
   scheduleSave();
 }
 
-function updateVestCorrection(grantId, vestNumber, value) {
-  grants = grants.map((grant) => {
-    if (grant.id !== grantId) return grant;
+function updatePayoutCorrection(dateKey, value) {
+  payoutCorrections = { ...payoutCorrections };
+  if (value === '') {
+    delete payoutCorrections[dateKey];
+  } else {
+    payoutCorrections[dateKey] = value;
+  }
 
-    const vestCorrections = { ...(grant.vestCorrections || {}) };
-    if (value === '') {
-      delete vestCorrections[vestNumber];
-    } else {
-      vestCorrections[vestNumber] = value;
-    }
-
-    return { ...grant, vestCorrections };
-  });
   renderSchedule();
-  scheduleSave();
+  savePayoutCorrections();
 }
 
 function addGrant() {
   grants = [
     ...grants,
-    { id: crypto.randomUUID(), label: `Grant ${String.fromCharCode(65 + grants.length)}`, shares: '', firstVestDate: '', vestCorrections: {} },
+    { id: crypto.randomUUID(), label: `Grant ${String.fromCharCode(65 + grants.length)}`, shares: '', firstVestDate: '' },
   ];
   renderGrantInputs();
   renderSchedule();
@@ -396,7 +414,9 @@ async function initializeApp() {
   database = await openDatabase();
   const hasInitialized = await readMetadata('initialized');
   const savedStockPrice = await readMetadata(STOCK_PRICE_KEY);
+  const savedPayoutCorrections = await readMetadata(PAYOUT_CORRECTIONS_KEY);
   stockPrice = Number(savedStockPrice) || 0;
+  payoutCorrections = savedPayoutCorrections || {};
   stockPriceInput.value = stockPrice || '';
   grants = await readGrants();
 
@@ -422,8 +442,8 @@ addGrantButton.disabled = true;
 addGrantButton.addEventListener('click', addGrant);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
 scheduleGrid.addEventListener('change', (event) => {
-  if (event.target.dataset.action !== 'correct-vest') return;
-  updateVestCorrection(event.target.dataset.grantId, event.target.dataset.vestNumber, event.target.value);
+  if (event.target.dataset.action !== 'correct-payout') return;
+  updatePayoutCorrection(event.target.dataset.dateKey, event.target.value);
 });
 initializeApp().catch(() => {
   databaseStatus.textContent = 'Could not open the local database. Refresh and try again.';
