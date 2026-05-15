@@ -12,6 +12,7 @@ const INCOME_BASELINES_KEY = 'incomeBaselines';
 const RETIREMENT_INPUT_KEY = 'retirementInput';
 const RETIREMENT_ENTRIES_KEY = 'retirementContributionEntries';
 const RETIREMENT_BASELINES_KEY = 'retirementBaselines';
+const RETIREMENT_DATA_URL = '/data/401k-contributions.json';
 const RETIREMENT_CONTRIBUTION_CAP = 24500;
 const RETIREMENT_CAP_YEAR = 2026;
 const TAX_WITHHOLDING_RATE = 0.415;
@@ -280,6 +281,16 @@ function saveRetirementDraftInput() {
   writeMetadata(RETIREMENT_INPUT_KEY, retirementDraftInput).catch(() => {
     retirementStatus.textContent = 'Could not save pasted 401k rows locally.';
   });
+}
+
+async function readRetirementCodeJson() {
+  try {
+    const response = await fetch(RETIREMENT_DATA_URL, { cache: 'no-store' });
+    if (!response.ok) return null;
+    return response.json();
+  } catch {
+    return null;
+  }
 }
 
 function parseDate(value) {
@@ -1288,23 +1299,23 @@ async function copyRetirementJson() {
   const json = getRetirementJson();
   if (navigator.clipboard) {
     await navigator.clipboard.writeText(json);
-    renderRetirementContributions('Copied 401k JSON for VS Code.');
+    renderRetirementContributions('Copied 401k JSON. Paste it into data/401k-contributions.json and commit the JSON change.');
     return;
   }
 
   retirementJsonOutput.select();
   document.execCommand('copy');
-  renderRetirementContributions('Copied 401k JSON for VS Code.');
+  renderRetirementContributions('Copied 401k JSON. Paste it into data/401k-contributions.json and commit the JSON change.');
 }
 
 function downloadRetirementJson() {
   const blob = new Blob([getRetirementJson()], { type: 'application/json' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = '401k-contribution-entries.json';
+  link.download = '401k-contributions.json';
   link.click();
   URL.revokeObjectURL(link.href);
-  renderRetirementContributions('Downloaded 401k-contribution-entries.json for VS Code.');
+  renderRetirementContributions('Downloaded 401k-contributions.json. Replace data/401k-contributions.json with it and commit the JSON change.');
 }
 
 function switchTab(targetPanelId) {
@@ -1583,6 +1594,7 @@ async function initializeApp() {
   const savedRetirementInput = await readMetadata(RETIREMENT_INPUT_KEY);
   const savedRetirementEntries = await readMetadata(RETIREMENT_ENTRIES_KEY);
   const savedRetirementBaselines = await readMetadata(RETIREMENT_BASELINES_KEY);
+  const codeRetirementData = await readRetirementCodeJson();
   stockPrice = Number(savedStockPrice) || 0;
   grantGrossOverrides = savedGrantGrossOverrides || {};
   netUnitOverrides = savedNetUnitOverrides || {};
@@ -1594,10 +1606,25 @@ async function initializeApp() {
   taxableIncomeEntries = sanitizeSavedIncomeEntries(savedTaxableIncomeEntries || parseTaxableIncomeEntries(taxableIncomeDraftInput).entries);
   retirementDraftInput = savedRetirementInput || '';
   retirementInputField.value = retirementDraftInput;
-  retirementBaselines = { J1: '', J2: '', ...(savedRetirementBaselines || {}) };
+  const codeRetirementBaselines = codeRetirementData?.retirementBaselines || {};
+  const codeRetirementEntries = sanitizeSavedRetirementEntries(codeRetirementData?.retirementContributionEntries || []);
+  const draftRetirementEntries = parseRetirementContributionEntries(retirementDraftInput).entries;
+  const browserRetirementEntries = sanitizeSavedRetirementEntries(
+    savedRetirementEntries === undefined ? draftRetirementEntries : savedRetirementEntries,
+  );
+  const { newEntries: browserOnlyRetirementEntries } = splitNewAndDuplicateEntries(
+    codeRetirementEntries,
+    browserRetirementEntries,
+  );
+  retirementBaselines = {
+    J1: '',
+    J2: '',
+    ...codeRetirementBaselines,
+    ...(savedRetirementBaselines || {}),
+  };
   retirementBaselineJ1Input.value = retirementBaselines.J1 || '';
   retirementBaselineJ2Input.value = retirementBaselines.J2 || '';
-  retirementContributionEntries = sanitizeSavedRetirementEntries(savedRetirementEntries || parseRetirementContributionEntries(retirementDraftInput).entries);
+  retirementContributionEntries = [...codeRetirementEntries, ...browserOnlyRetirementEntries];
   stockPriceInput.value = stockPrice || '';
   grants = await readGrants();
 

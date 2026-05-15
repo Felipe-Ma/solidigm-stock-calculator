@@ -273,12 +273,12 @@
               <span aria-hidden="true">🏦</span>
               <div>
                 <h2>401k contribution tracker</h2>
-                <p>Add current and future 401k contributions for J1 and J2. Entries are saved locally as JSON and checked against the $24,500 yearly cap.</p>
+                <p>Add current and future 401k contributions for J1 and J2. Entries are saved locally, can be exported to data/401k-contributions.json for commits, and are checked against the $24,500 yearly cap.</p>
               </div>
             </div>
             <div class="income-action-row">
-              <button class="secondary-button" type="button" id="copy-retirement-json">Copy JSON</button>
-              <button class="secondary-button subtle-button" type="button" id="download-retirement-json">Download JSON</button>
+              <button class="secondary-button" type="button" id="copy-retirement-json">Copy repo JSON</button>
+              <button class="secondary-button subtle-button" type="button" id="download-retirement-json">Download repo JSON</button>
               <button class="reset-button" type="button" id="reset-all-retirement">Reset all entries</button>
             </div>
           </div>
@@ -430,7 +430,7 @@
           </div>
 
           <label class="income-json-label">
-            Saved 401k JSON for VS Code
+            Saved 401k repo JSON (data/401k-contributions.json)
             <textarea id="retirement-json" readonly></textarea>
           </label>
         </section>
