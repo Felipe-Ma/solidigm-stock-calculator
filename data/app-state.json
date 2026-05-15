@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "updatedAt": null,
+  "stockPrice": 0,
+  "grants": [
+    {
+      "id": "grant-a",
+      "label": "Grant A",
+      "shares": "1200",
+      "firstVestDate": "2025-01-30"
+    },
+    {
+      "id": "grant-b",
+      "label": "Grant B",
+      "shares": "800",
+      "firstVestDate": "2025-04-30"
+    }
+  ],
+  "grantGrossOverrides": {},
+  "netUnitOverrides": {},
+  "incomeBaselines": {
+    "J1": "",
+    "J2": ""
+  },
+  "paycheckSchedule2026": [
+    {
+      "paycheckNumber": 1,
+      "dateKey": "2026-01-15"
+    },
+    {
+      "paycheckNumber": 2,
+      "dateKey": "2026-01-30"
+    },
+    {
+      "paycheckNumber": 3,
+      "dateKey": "2026-02-13"
+    },
+    {
+      "paycheckNumber": 4,
+      "dateKey": "2026-02-27"
+    },
+    {
+      "paycheckNumber": 5,
+      "dateKey": "2026-03-13"
+    },
+    {
+      "paycheckNumber": 6,
+      "dateKey": "2026-03-31"
+    },
+    {
+      "paycheckNumber": 7,
+      "dateKey": "2026-04-15"
+    },
+    {
+      "paycheckNumber": 8,
+      "dateKey": "2026-04-30"
+    },
+    {
+      "paycheckNumber": 9,
+      "dateKey": "2026-05-15"
+    },
+    {
+      "paycheckNumber": 10,
+      "dateKey": "2026-05-29"
+    },
+    {
+      "paycheckNumber": 11,
+      "dateKey": "2026-06-15"
+    },
+    {
+      "paycheckNumber": 12,
+      "dateKey": "2026-06-30"
+    },
+    {
+      "paycheckNumber": 13,
+      "dateKey": "2026-07-15"
+    },
+    {
+      "paycheckNumber": 14,
+      "dateKey": "2026-07-31"
+    },
+    {
+      "paycheckNumber": 15,
+      "dateKey": "2026-08-14"
+    },
+    {
+      "paycheckNumber": 16,
+      "dateKey": "2026-08-31"
+    },
+    {
+      "paycheckNumber": 17,
+      "dateKey": "2026-09-15"
+    },
+    {
+      "paycheckNumber": 18,
+      "dateKey": "2026-09-30"
+    },
+    {
+      "paycheckNumber": 19,
+      "dateKey": "2026-10-15"
+    },
+    {
+      "paycheckNumber": 20,
+      "dateKey": "2026-10-30"
+    },
+    {
+      "paycheckNumber": 21,
+      "dateKey": "2026-11-13"
+    },
+    {
+      "paycheckNumber": 22,
+      "dateKey": "2026-11-30"
+    },
+    {
+      "paycheckNumber": 23,
+      "dateKey": "2026-12-15"
+    },
+    {
+      "paycheckNumber": 24,
+      "dateKey": "2026-12-31"
+    }
+  ],
+  "taxableIncomeEntries": [],
+  "yearlyContributionCap": 24500,
+  "capYear": 2026,
+  "retirementBaselines": {
+    "J1": "",
+    "J2": ""
+  },
+  "retirementContributionEntries": []
+}

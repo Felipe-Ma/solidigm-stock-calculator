@@ -12,6 +12,7 @@ const INCOME_BASELINES_KEY = 'incomeBaselines';
 const RETIREMENT_INPUT_KEY = 'retirementInput';
 const RETIREMENT_ENTRIES_KEY = 'retirementContributionEntries';
 const RETIREMENT_BASELINES_KEY = 'retirementBaselines';
+const APP_STATE_DATA_URL = '/data/app-state.json';
 const RETIREMENT_DATA_URL = '/data/401k-contributions.json';
 const RETIREMENT_CONTRIBUTION_CAP = 24500;
 const RETIREMENT_CAP_YEAR = 2026;
@@ -75,6 +76,8 @@ const futureValue = document.querySelector('#future-value');
 const stockPriceInput = document.querySelector('#stock-price');
 const grantTemplate = document.querySelector('#grant-template');
 const addGrantButton = document.querySelector('#add-grant');
+const copyAppStateJsonButton = document.querySelector('#copy-app-state-json');
+const downloadAppStateJsonButton = document.querySelector('#download-app-state-json');
 const resetCorrectionsButton = document.querySelector('#reset-corrections');
 const tabButtons = document.querySelectorAll('[data-tab-target]');
 const taxableIncomeInputField = document.querySelector('#taxable-income-input');
@@ -287,14 +290,22 @@ function saveRetirementDraftInput() {
   });
 }
 
-async function readRetirementCodeJson() {
+async function readJsonFile(url) {
   try {
-    const response = await fetch(RETIREMENT_DATA_URL, { cache: 'no-store' });
+    const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) return null;
     return response.json();
   } catch {
     return null;
   }
+}
+
+async function readAppStateCodeJson() {
+  return readJsonFile(APP_STATE_DATA_URL);
+}
+
+async function readRetirementCodeJson() {
+  return readJsonFile(RETIREMENT_DATA_URL);
 }
 
 function parseDate(value) {
@@ -653,6 +664,83 @@ function getIncomeJson() {
     paycheckSchedule2026: PAYCHECK_SCHEDULE_2026,
     taxableIncomeEntries,
   }, null, 2);
+}
+
+
+function sanitizeSavedGrants(savedGrants) {
+  if (!Array.isArray(savedGrants)) return [];
+
+  return savedGrants
+    .map((grant, index) => {
+      if (!grant || typeof grant !== 'object') return null;
+      const id = typeof grant.id === 'string' && grant.id ? grant.id : crypto.randomUUID();
+      return {
+        id,
+        label: String(grant.label || `Grant ${String.fromCharCode(65 + index)}`),
+        shares: grant.shares === undefined ? '' : String(grant.shares),
+        firstVestDate: grant.firstVestDate === undefined ? '' : String(grant.firstVestDate),
+      };
+    })
+    .filter(Boolean);
+}
+
+function getAppStateData() {
+  return {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    stockPrice,
+    grants: sanitizeSavedGrants(grants),
+    grantGrossOverrides,
+    netUnitOverrides,
+    incomeBaselines,
+    paycheckSchedule2026: PAYCHECK_SCHEDULE_2026,
+    taxableIncomeEntries: sanitizeSavedIncomeEntries(taxableIncomeEntries),
+    yearlyContributionCap: RETIREMENT_CONTRIBUTION_CAP,
+    capYear: RETIREMENT_CAP_YEAR,
+    retirementBaselines,
+    retirementContributionEntries: sanitizeSavedRetirementEntries(retirementContributionEntries),
+  };
+}
+
+function getAppStateJson() {
+  return JSON.stringify(getAppStateData(), null, 2);
+}
+
+async function copyAppStateJson() {
+  const json = getAppStateJson();
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(json);
+    databaseStatus.textContent = 'Copied repo data JSON. Paste it into data/app-state.json, then commit and push that file.';
+    return;
+  }
+
+  await copyTextWithHiddenTextarea(json);
+  databaseStatus.textContent = 'Copied repo data JSON. Paste it into data/app-state.json, then commit and push that file.';
+}
+
+function downloadAppStateJson() {
+  const blob = new Blob([getAppStateJson()], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'app-state.json';
+  link.click();
+  URL.revokeObjectURL(link.href);
+  databaseStatus.textContent = 'Downloaded app-state.json. Replace data/app-state.json with it, then commit and push that file.';
+}
+
+function copyTextWithHiddenTextarea(text) {
+  return new Promise((resolve) => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.append(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+    resolve();
+  });
 }
 
 function isFutureIncomeEntry(entry) {
@@ -1651,20 +1739,47 @@ async function initializeApp() {
   const savedRetirementInput = await readMetadata(RETIREMENT_INPUT_KEY);
   const savedRetirementEntries = await readMetadata(RETIREMENT_ENTRIES_KEY);
   const savedRetirementBaselines = await readMetadata(RETIREMENT_BASELINES_KEY);
+  const codeAppStateData = await readAppStateCodeJson();
   const codeRetirementData = await readRetirementCodeJson();
-  stockPrice = Number(savedStockPrice) || 0;
-  grantGrossOverrides = savedGrantGrossOverrides || {};
-  netUnitOverrides = savedNetUnitOverrides || {};
+
+  stockPrice = Number(savedStockPrice ?? codeAppStateData?.stockPrice) || 0;
+  grantGrossOverrides = {
+    ...(codeAppStateData?.grantGrossOverrides || {}),
+    ...(savedGrantGrossOverrides || {}),
+  };
+  netUnitOverrides = {
+    ...(codeAppStateData?.netUnitOverrides || {}),
+    ...(savedNetUnitOverrides || {}),
+  };
+
   taxableIncomeDraftInput = savedTaxableIncomeInput || '';
   taxableIncomeInputField.value = taxableIncomeDraftInput;
-  incomeBaselines = { J1: '', J2: '', ...(savedIncomeBaselines || {}) };
+  incomeBaselines = {
+    J1: '',
+    J2: '',
+    ...(codeAppStateData?.incomeBaselines || {}),
+    ...(savedIncomeBaselines || {}),
+  };
   incomeBaselineJ1Input.value = incomeBaselines.J1 || '';
   incomeBaselineJ2Input.value = incomeBaselines.J2 || '';
-  taxableIncomeEntries = sanitizeSavedIncomeEntries(savedTaxableIncomeEntries || parseTaxableIncomeEntries(taxableIncomeDraftInput).entries);
+
+  const codeTaxableIncomeEntries = sanitizeSavedIncomeEntries(codeAppStateData?.taxableIncomeEntries || []);
+  const draftTaxableIncomeEntries = parseTaxableIncomeEntries(taxableIncomeDraftInput).entries;
+  const browserTaxableIncomeEntries = sanitizeSavedIncomeEntries(
+    savedTaxableIncomeEntries === undefined ? draftTaxableIncomeEntries : savedTaxableIncomeEntries,
+  );
+  const { newEntries: browserOnlyTaxableIncomeEntries } = splitNewAndDuplicateEntries(
+    codeTaxableIncomeEntries,
+    browserTaxableIncomeEntries,
+  );
+  taxableIncomeEntries = [...codeTaxableIncomeEntries, ...browserOnlyTaxableIncomeEntries];
+
   retirementDraftInput = savedRetirementInput || '';
   retirementInputField.value = retirementDraftInput;
-  const codeRetirementBaselines = codeRetirementData?.retirementBaselines || {};
-  const codeRetirementEntries = sanitizeSavedRetirementEntries(codeRetirementData?.retirementContributionEntries || []);
+  const codeRetirementBaselines = codeAppStateData?.retirementBaselines || codeRetirementData?.retirementBaselines || {};
+  const codeRetirementEntries = sanitizeSavedRetirementEntries(
+    codeAppStateData?.retirementContributionEntries || codeRetirementData?.retirementContributionEntries || [],
+  );
   const draftRetirementEntries = parseRetirementContributionEntries(retirementDraftInput).entries;
   const browserRetirementEntries = sanitizeSavedRetirementEntries(
     savedRetirementEntries === undefined ? draftRetirementEntries : savedRetirementEntries,
@@ -1683,15 +1798,21 @@ async function initializeApp() {
   retirementBaselineJ2Input.value = retirementBaselines.J2 || '';
   retirementContributionEntries = [...codeRetirementEntries, ...browserOnlyRetirementEntries];
   stockPriceInput.value = stockPrice || '';
-  grants = await readGrants();
+
+  const repoGrants = sanitizeSavedGrants(codeAppStateData?.grants || []);
+  const browserGrants = sanitizeSavedGrants(await readGrants());
+  grants = browserGrants.length > 0 ? browserGrants : repoGrants;
 
   if (!hasInitialized && grants.length === 0) {
     grants = DEFAULT_GRANTS;
     await saveGrantsNow();
+  } else if (browserGrants.length === 0 && grants.length > 0) {
+    await saveGrantsNow();
   }
   if (!hasInitialized) await writeMetadata('initialized', true);
 
-  databaseStatus.textContent = `Loaded ${grants.length} grant${grants.length === 1 ? '' : 's'} from local database.`;
+  const sourceLabel = browserGrants.length > 0 ? 'local database' : repoGrants.length > 0 ? 'data/app-state.json' : 'starter defaults';
+  databaseStatus.textContent = `Loaded ${grants.length} grant${grants.length === 1 ? '' : 's'} from ${sourceLabel}. Use Copy repo data or Download repo data before committing/pushing shared data.`;
   addGrantButton.disabled = false;
   renderGrantInputs();
   renderSchedule();
@@ -1707,6 +1828,12 @@ function updateStockPrice(value) {
 
 addGrantButton.disabled = true;
 addGrantButton.addEventListener('click', addGrant);
+copyAppStateJsonButton.addEventListener('click', () => {
+  copyAppStateJson().catch(() => {
+    databaseStatus.textContent = 'Could not copy repo data automatically. Download app-state.json instead.';
+  });
+});
+downloadAppStateJsonButton.addEventListener('click', downloadAppStateJson);
 resetCorrectionsButton.addEventListener('click', resetManualCorrections);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
 taxableIncomeInputField.addEventListener('input', (event) => updateTaxableIncomeDraft(event.target.value));
