@@ -26,6 +26,10 @@ const scheduleGrid = document.querySelector('#schedule-grid');
 const grandTotal = document.querySelector('#grand-total');
 const totalValue = document.querySelector('#total-value');
 const nextVestValue = document.querySelector('#next-vest-value');
+const heldUnits = document.querySelector('#held-units');
+const heldValue = document.querySelector('#held-value');
+const futureUnits = document.querySelector('#future-units');
+const futureValue = document.querySelector('#future-value');
 const stockPriceInput = document.querySelector('#stock-price');
 const grantTemplate = document.querySelector('#grant-template');
 const addGrantButton = document.querySelector('#add-grant');
@@ -336,14 +340,23 @@ function renderGrantInputs() {
 
 function renderSchedule() {
   const schedule = getAdjustedSchedule(getSchedule());
+  const today = startOfToday();
   const totalGrossShares = schedule.reduce((sum, row) => sum + row.total, 0);
   const totalNetShares = schedule.reduce((sum, row) => sum + row.netTotal, 0);
-  const nextRow = schedule.find((row) => row.date >= startOfToday()) || schedule[0];
+  const heldNetShares = schedule
+    .filter((row) => row.date <= today)
+    .reduce((sum, row) => sum + row.netTotal, 0);
+  const futureNetShares = totalNetShares - heldNetShares;
+  const nextRow = schedule.find((row) => row.date >= today) || schedule[0];
   const nextNetShares = nextRow?.netTotal || 0;
 
   grandTotal.textContent = formatShares(totalGrossShares);
   totalValue.textContent = formatCurrency(totalNetShares * stockPrice);
   nextVestValue.textContent = formatCurrency(nextNetShares * stockPrice);
+  heldUnits.textContent = formatShares(heldNetShares);
+  heldValue.textContent = formatCurrency(heldNetShares * stockPrice);
+  futureUnits.textContent = formatShares(futureNetShares);
+  futureValue.textContent = formatCurrency(futureNetShares * stockPrice);
   scheduleGrid.replaceChildren();
 
   if (schedule.length === 0) {
