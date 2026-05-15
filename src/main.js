@@ -139,6 +139,7 @@ const resetAllRetirementButton = document.querySelector('#reset-all-retirement')
 const futureRetirementSummary = document.querySelector('#future-retirement-summary');
 const futureRetirementList = document.querySelector('#future-retirement-list');
 const futureRetirementListSummary = document.querySelector('#future-retirement-list-summary');
+const retirementPaycheckScheduleGrid = document.querySelector('#retirement-paycheck-schedule-grid');
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -1044,6 +1045,40 @@ function renderFutureRetirementList() {
     }).join('');
 }
 
+function renderRetirementPaycheckScheduleBoxes() {
+  retirementPaycheckScheduleGrid.innerHTML = PAYCHECK_SCHEDULE_2026.map((paycheck) => {
+    const date = parseDate(paycheck.dateKey);
+    const status = getPaycheckDateStatus(paycheck.dateKey);
+    const entries = retirementContributionEntries.filter((entry) => entry.dateKey === paycheck.dateKey);
+    const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
+
+    return `
+      <article class="paycheck-date-card paycheck-${status}">
+        <div class="paycheck-date-header">
+          <div>
+            <span>Paycheck ${paycheck.paycheckNumber}</span>
+            <time datetime="${paycheck.dateKey}">${formatDate(date)}</time>
+          </div>
+          <strong>${formatCurrency(total)}</strong>
+        </div>
+        <span class="paycheck-status-pill">${status === 'today' ? 'Today' : status}</span>
+        <div class="paycheck-entry-list">
+          ${entries.length === 0
+    ? '<p class="empty-row paycheck-empty-state">No 401k contributions for this date yet.</p>'
+    : entries.map((entry) => `
+            <div class="paycheck-entry income-${toClassToken(entry.job)}">
+              <span>${escapeHtml(entry.job)} · ${escapeHtml(entry.category)} · ${formatIncomeSource(entry)}</span>
+              <strong>${formatCurrency(entry.amount)}</strong>
+              <button class="text-button" type="button" data-action="remove-retirement-entry" data-entry-id="${entry.id}">Remove</button>
+            </div>
+          `).join('')}
+        </div>
+        <button class="text-button use-date-button" type="button" data-action="use-retirement-date" data-date-key="${paycheck.dateKey}">Use this date</button>
+      </article>
+    `;
+  }).join('');
+}
+
 function renderRetirementContributions(message) {
   const totals = getRetirementTotals();
   const capRemaining = RETIREMENT_CONTRIBUTION_CAP - totals.capYearTotal;
@@ -1060,6 +1095,7 @@ function renderRetirementContributions(message) {
   retirementJsonOutput.value = getRetirementJson();
   futureRetirementSummary.textContent = getFutureRetirementSummary();
   renderFutureRetirementList();
+  renderRetirementPaycheckScheduleBoxes();
 
   const capMessage = capRemaining < 0
     ? ` You are ${formatCurrency(Math.abs(capRemaining))} over the ${RETIREMENT_CAP_YEAR} cap.`
@@ -1602,6 +1638,11 @@ document.querySelector('#income-panel').addEventListener('click', (event) => {
 document.querySelector('#retirement-panel').addEventListener('click', (event) => {
   if (event.target.dataset.action === 'remove-retirement-entry') {
     removeRetirementContributionEntry(event.target.dataset.entryId);
+  }
+  if (event.target.dataset.action === 'use-retirement-date') {
+    retirementDateInput.value = event.target.dataset.dateKey;
+    retirementAmountInput.focus();
+    renderRetirementContributions(`Selected ${formatDate(parseDate(event.target.dataset.dateKey))} for the next 401k contribution entry.`);
   }
 });
 initializeApp().catch(() => {
