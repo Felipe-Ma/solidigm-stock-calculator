@@ -4,7 +4,7 @@ const GRANT_STORE = 'grants';
 const METADATA_STORE = 'metadata';
 const QUARTERS_IN_LTI_PLAN = 16;
 const STOCK_PRICE_KEY = 'stockPrice';
-const PAYOUT_CORRECTIONS_KEY = 'payoutCorrections';
+const GROSS_UNIT_OVERRIDES_KEY = 'grossUnitOverrides';
 const TAX_WITHHOLDING_RATE = 0.415;
 
 const DEFAULT_GRANTS = [
@@ -16,7 +16,7 @@ let grants = [];
 let database;
 let saveTimer;
 let stockPrice = 0;
-let payoutCorrections = {};
+let grossUnitOverrides = {};
 
 const databaseStatus = document.querySelector('#database-status');
 const grantList = document.querySelector('#grant-list');
@@ -113,10 +113,10 @@ function saveStockPrice() {
   });
 }
 
-function savePayoutCorrections() {
+function saveGrossUnitOverrides() {
   if (!database) return;
-  writeMetadata(PAYOUT_CORRECTIONS_KEY, payoutCorrections).catch(() => {
-    databaseStatus.textContent = 'Could not save payout correction locally.';
+  writeMetadata(GROSS_UNIT_OVERRIDES_KEY, grossUnitOverrides).catch(() => {
+    databaseStatus.textContent = 'Could not save gross unit correction locally.';
   });
 }
 
@@ -172,6 +172,10 @@ function formatCurrency(value) {
 
 function getAfterTaxValue(value) {
   return value * (1 - TAX_WITHHOLDING_RATE);
+}
+
+function getEffectiveGrossShares(calculatedGrossShares, override) {
+  return override === undefined || override === '' ? calculatedGrossShares : parseShareAmount(override);
 }
 
 function startOfToday() {
@@ -243,14 +247,15 @@ function renderGrantInputs() {
 
 function renderSchedule() {
   const schedule = getSchedule();
-  const totalGrossShares = schedule.reduce((sum, row) => sum + row.total, 0);
-  const totalNetShares = schedule.reduce((sum, row) => {
-    const correction = parseShareAmount(payoutCorrections[toDateKey(row.date)]);
-    return sum + getAfterTaxValue(row.total) + correction;
+  const totalGrossShares = schedule.reduce((sum, row) => {
+    const dateKey = toDateKey(row.date);
+    return sum + getEffectiveGrossShares(row.total, grossUnitOverrides[dateKey]);
   }, 0);
+  const totalNetShares = getAfterTaxValue(totalGrossShares);
   const nextRow = schedule.find((row) => row.date >= startOfToday()) || schedule[0];
-  const nextRowCorrection = nextRow ? parseShareAmount(payoutCorrections[toDateKey(nextRow.date)]) : 0;
-  const nextNetShares = nextRow ? getAfterTaxValue(nextRow.total) + nextRowCorrection : 0;
+  const nextNetShares = nextRow
+    ? getAfterTaxValue(getEffectiveGrossShares(nextRow.total, grossUnitOverrides[toDateKey(nextRow.date)]))
+    : 0;
 
   grandTotal.textContent = formatShares(totalGrossShares);
   totalValue.textContent = formatCurrency(totalNetShares * stockPrice);
@@ -271,17 +276,17 @@ function renderSchedule() {
   periodList.className = 'payout-period-list';
   periodList.innerHTML = schedule.map((row, index) => {
     const dateKey = toDateKey(row.date);
-    const correction = parseShareAmount(payoutCorrections[dateKey]);
-    const grossShares = row.total;
-    const expectedNetShares = getAfterTaxValue(grossShares);
-    const correctedNetShares = expectedNetShares + correction;
-    const taxWithheldShares = grossShares * TAX_WITHHOLDING_RATE;
-    const grossValue = grossShares * stockPrice;
+    const override = grossUnitOverrides[dateKey];
+    const calculatedGrossShares = row.total;
+    const effectiveGrossShares = getEffectiveGrossShares(calculatedGrossShares, override);
+    const taxWithheldShares = effectiveGrossShares * TAX_WITHHOLDING_RATE;
+    const netShares = getAfterTaxValue(effectiveGrossShares);
+    const grossValue = effectiveGrossShares * stockPrice;
     const withheldValue = taxWithheldShares * stockPrice;
-    const netValue = correctedNetShares * stockPrice;
+    const netValue = netShares * stockPrice;
 
-    runningGrossShares += grossShares;
-    runningNetShares += correctedNetShares;
+    runningGrossShares += effectiveGrossShares;
+    runningNetShares += netShares;
 
     return `
       <article class="payout-card">
@@ -291,38 +296,35 @@ function renderSchedule() {
             <time datetime="${dateKey}">${formatDate(row.date)}</time>
           </div>
           <div class="combined-payout">
-            <span>${formatShares(correctedNetShares)} net units</span>
-            <small>${formatShares(grossShares)} gross units from ${row.grants.length} grant${row.grants.length === 1 ? '' : 's'}</small>
+            <span>${formatShares(netShares)} net units</span>
+            <small>${formatShares(effectiveGrossShares)} gross units from ${row.grants.length} grant${row.grants.length === 1 ? '' : 's'}</small>
           </div>
         </div>
 
         <div class="payout-summary-grid" aria-label="Payout period totals">
           <div class="payout-summary-item">
-            <span>Gross units</span>
-            <strong>${formatShares(grossShares)}</strong>
+            <span>Calculated gross</span>
+            <strong>${formatShares(calculatedGrossShares)}</strong>
           </div>
+          <label class="payout-summary-item gross-override-item">
+            <span>Correct gross units</span>
+            <input
+              data-action="correct-gross-payout"
+              data-date-key="${dateKey}"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="${formatShares(calculatedGrossShares)}"
+              value="${override || ''}"
+            />
+          </label>
           <div class="payout-summary-item withholding-item">
             <span>41.5% tax withheld</span>
             <strong>−${formatShares(taxWithheldShares)}</strong>
           </div>
           <div class="payout-summary-item net-item">
             <span>Post-tax units</span>
-            <strong>${formatShares(expectedNetShares)}</strong>
-          </div>
-          <label class="payout-summary-item correction-item">
-            <span>Post-tax correction</span>
-            <input
-              data-action="correct-payout"
-              data-date-key="${dateKey}"
-              type="number"
-              step="0.01"
-              placeholder="0"
-              value="${correction || ''}"
-            />
-          </label>
-          <div class="payout-summary-item net-item">
-            <span>Corrected net units</span>
-            <strong>${formatShares(correctedNetShares)}</strong>
+            <strong>${formatShares(netShares)}</strong>
           </div>
           <div class="payout-summary-item">
             <span>Gross value</span>
@@ -353,7 +355,7 @@ function renderSchedule() {
               <div class="grant-vest-line">
                 <span class="grant-name">${escapeHtml(grant.label)}</span>
                 <span>Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
-                <span>${formatShares(grant.amount)} gross units</span>
+                <span>${formatShares(grant.amount)} calculated gross units</span>
               </div>
             `).join('')}
           </div>
@@ -371,16 +373,16 @@ function updateGrant(id, field, value) {
   scheduleSave();
 }
 
-function updatePayoutCorrection(dateKey, value) {
-  payoutCorrections = { ...payoutCorrections };
+function updateGrossUnitOverride(dateKey, value) {
+  grossUnitOverrides = { ...grossUnitOverrides };
   if (value === '') {
-    delete payoutCorrections[dateKey];
+    delete grossUnitOverrides[dateKey];
   } else {
-    payoutCorrections[dateKey] = value;
+    grossUnitOverrides[dateKey] = value;
   }
 
   renderSchedule();
-  savePayoutCorrections();
+  saveGrossUnitOverrides();
 }
 
 function addGrant() {
@@ -414,9 +416,9 @@ async function initializeApp() {
   database = await openDatabase();
   const hasInitialized = await readMetadata('initialized');
   const savedStockPrice = await readMetadata(STOCK_PRICE_KEY);
-  const savedPayoutCorrections = await readMetadata(PAYOUT_CORRECTIONS_KEY);
+  const savedGrossUnitOverrides = await readMetadata(GROSS_UNIT_OVERRIDES_KEY);
   stockPrice = Number(savedStockPrice) || 0;
-  payoutCorrections = savedPayoutCorrections || {};
+  grossUnitOverrides = savedGrossUnitOverrides || {};
   stockPriceInput.value = stockPrice || '';
   grants = await readGrants();
 
@@ -442,8 +444,8 @@ addGrantButton.disabled = true;
 addGrantButton.addEventListener('click', addGrant);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
 scheduleGrid.addEventListener('change', (event) => {
-  if (event.target.dataset.action !== 'correct-payout') return;
-  updatePayoutCorrection(event.target.dataset.dateKey, event.target.value);
+  if (event.target.dataset.action !== 'correct-gross-payout') return;
+  updateGrossUnitOverride(event.target.dataset.dateKey, event.target.value);
 });
 initializeApp().catch(() => {
   databaseStatus.textContent = 'Could not open the local database. Refresh and try again.';

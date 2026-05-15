@@ -394,7 +394,7 @@ label {
 
 .running-item strong { color: #111827; }
 
-.correction-item input {
+.gross-override-item input {
   min-height: 36px;
   padding: 6px 8px;
   border-radius: 10px;
