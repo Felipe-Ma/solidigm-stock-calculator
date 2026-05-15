@@ -244,7 +244,7 @@ input:focus, textarea:focus {
   letter-spacing: 0.08em;
 }
 
-.secondary-button, .icon-button {
+.secondary-button, .icon-button, .reset-button {
   display: inline-flex;
   gap: 8px;
   align-items: center;
@@ -260,6 +260,15 @@ input:focus, textarea:focus {
   background: #2563eb;
   color: #fff;
   box-shadow: 0 10px 24px rgba(37, 99, 235, 0.25);
+}
+
+.reset-button {
+  flex: 0 0 auto;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff1f2;
+  color: #be123c;
 }
 
 .icon-button {
@@ -301,95 +310,158 @@ label {
   display: block;
 }
 
-.schedule-table-wrapper {
-  overflow-x: auto;
+.payout-period-list {
+  display: grid;
+  gap: 14px;
+}
+
+.payout-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
   border: 1px solid #e2e8f0;
-  border-radius: 18px;
+  border-radius: 20px;
   background: #ffffff;
 }
 
-.schedule-table {
-  width: 100%;
-  min-width: 920px;
-  border-collapse: collapse;
+.payout-card-header {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
 }
 
-.schedule-table th,
-.schedule-table td {
-  padding: 12px 16px;
-  border-bottom: 1px solid #e2e8f0;
-  text-align: left;
-  vertical-align: top;
+.payout-card time {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
-.schedule-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+.payout-period,
+.combined-payout span {
+  display: block;
+  color: #111827;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.combined-payout {
+  text-align: right;
+}
+
+.combined-payout span {
+  color: #1d4ed8;
+  font-size: 1.2rem;
+}
+
+.combined-payout small {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-weight: 800;
+}
+
+.payout-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
   background: #f8fbff;
-  color: #475569;
-  font-size: 0.75rem;
+}
+
+.payout-summary-item {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border-right: 1px solid #e0e7ff;
+}
+
+.payout-summary-item:last-child { border-right: 0; }
+
+.payout-summary-item span {
+  color: #64748b;
+  font-size: 0.7rem;
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
-.schedule-table tr:last-child td { border-bottom: 0; }
-
-.schedule-table tbody tr:nth-child(even) { background: #fbfdff; }
-
-.schedule-table time {
-  color: #0f172a;
-  font-weight: 850;
-  white-space: nowrap;
-}
-
-.shares-cell, .value-cell {
+.payout-summary-item strong {
   color: #1d4ed8;
-  font-weight: 900;
+  font-size: 1rem;
+  letter-spacing: -0.03em;
   white-space: nowrap;
 }
 
-.value-cell { color: #0f766e; }
+.withholding-item strong { color: #b91c1c; }
 
-.running-shares {
-  display: block;
-  color: #111827;
-  white-space: nowrap;
-}
+.net-item strong { color: #0f766e; }
 
-.running-value {
-  display: block;
-  margin-top: 2px;
-  color: #0f766e;
-  font-size: 0.84rem;
+.running-item strong { color: #111827; }
+
+.net-override-item input,
+.grant-override-field input {
+  min-height: 36px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  font-size: 0.95rem;
   font-weight: 800;
-  white-space: nowrap;
+}
+
+.grant-breakdown-details {
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #fbfdff;
+}
+
+.grant-breakdown-details summary {
+  padding: 12px 14px;
+  color: #2563eb;
+  font-weight: 900;
+  cursor: pointer;
 }
 
 .grant-breakdown {
   display: grid;
-  gap: 6px;
+  gap: 8px;
+  padding: 0 14px 14px;
 }
 
 .grant-vest-line {
   display: grid;
-  grid-template-columns: minmax(140px, 1.2fr) 80px 110px 125px;
+  grid-template-columns: minmax(130px, 1fr) auto auto minmax(120px, 0.8fr) auto 125px;
   gap: 10px;
   align-items: center;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
   color: #475569;
   font-size: 0.88rem;
 }
 
-.grant-name {
-  color: #111827;
-  font-weight: 800;
+.grant-override-field {
+  gap: 4px;
+  color: #64748b;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .remaining-percent {
   color: #0f766e;
   font-weight: 900;
   text-align: right;
+  white-space: nowrap;
+}
+
+.grant-name {
+  color: #111827;
+  font-weight: 800;
 }
 
 .empty-row {
@@ -416,6 +488,11 @@ label {
   .plan-metric span { display: block; margin-top: 3px; text-align: left; }
   .grant-card { grid-template-columns: 1fr 1fr; }
   .icon-button { grid-column: 1 / -1; width: 100%; }
+  .payout-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .payout-summary-item { border-right: 0; border-bottom: 1px solid #e0e7ff; }
+  .payout-summary-item:last-child { border-bottom: 0; }
+  .grant-vest-line { grid-template-columns: 1fr 1fr; }
+  .remaining-percent { text-align: left; }
 }
 
 @media (max-width: 560px) {
@@ -424,8 +501,10 @@ label {
   .hero-stats { grid-template-columns: 1fr; }
   .grant-card { grid-template-columns: 1fr; }
   .plan-metric-grid { grid-template-columns: 1fr; }
-  .grant-vest-line { grid-template-columns: 1fr 1fr; }
-  .remaining-percent { text-align: left; }
+  .payout-card-header { flex-direction: column; }
+  .combined-payout { text-align: left; }
+  .payout-summary-grid { grid-template-columns: 1fr; }
+  .grant-vest-line { grid-template-columns: 1fr; }
   .split-heading { flex-direction: column; }
-  .secondary-button { width: 100%; }
+  .secondary-button, .reset-button { width: 100%; }
 }

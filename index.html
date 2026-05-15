@@ -19,11 +19,11 @@
         <div class="hero-stats">
           <div class="hero-stat">
             <span id="grand-total">0</span>
-            <small>shares scheduled</small>
+            <small>gross units scheduled</small>
           </div>
           <div class="hero-stat">
             <span id="total-value">$0</span>
-            <small>estimated value</small>
+            <small>est. after-tax value</small>
           </div>
         </div>
       </section>
@@ -55,7 +55,23 @@
             </div>
             <div class="plan-metric">
               <strong id="next-vest-value">$0</strong>
-              <span>Next vest value</span>
+              <span>Next net payout</span>
+            </div>
+            <div class="plan-metric">
+              <strong id="held-units">0</strong>
+              <span>Net units held</span>
+            </div>
+            <div class="plan-metric">
+              <strong id="held-value">$0</strong>
+              <span>Held value today</span>
+            </div>
+            <div class="plan-metric">
+              <strong id="future-units">0</strong>
+              <span>Future net units</span>
+            </div>
+            <div class="plan-metric">
+              <strong id="future-value">$0</strong>
+              <span>Future value today</span>
             </div>
           </div>
           <p class="helper-text" id="database-status">Loading local database…</p>
@@ -78,8 +94,9 @@
         <div class="panel-heading split-heading">
           <div>
             <h2>Grant layout</h2>
-            <p>A compact table showing vest value, running totals, and the percentage remaining after each vest.</p>
+            <p>A no-scroll payout view that combines grants by period, keeps gross corrections in each grant detail, redistributes corrected grant units across the 4-year schedule, and keeps one post-tax correction per payout.</p>
           </div>
+          <button class="reset-button" type="button" id="reset-corrections">Reset corrections</button>
         </div>
         <div class="schedule-grid" id="schedule-grid"></div>
       </section>
