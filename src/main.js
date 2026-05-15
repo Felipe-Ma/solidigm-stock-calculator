@@ -86,6 +86,10 @@ const futureTaxableIncomeTotal = document.querySelector('#future-taxable-income-
 const futureTaxableIncomeJ1Total = document.querySelector('#future-taxable-income-j1-total');
 const futureTaxableIncomeJ2Total = document.querySelector('#future-taxable-income-j2-total');
 const taxableIncomeStatus = document.querySelector('#taxable-income-status');
+const currentPaycheckTitle = document.querySelector('#current-paycheck-title');
+const currentPaycheckDetail = document.querySelector('#current-paycheck-detail');
+const currentPaycheckRemaining = document.querySelector('#current-paycheck-remaining');
+const currentPaycheckDate = document.querySelector('#current-paycheck-date');
 const taxableIncomeSummary = document.querySelector('#taxable-income-summary');
 const taxableIncomeTable = document.querySelector('#taxable-income-table');
 const incomeEntryForm = document.querySelector('#income-entry-form');
@@ -662,6 +666,38 @@ function getFutureIncomeEntries() {
     .sort((a, b) => parseDate(a.dateKey) - parseDate(b.dateKey));
 }
 
+function getPaycheckProgress() {
+  const today = startOfToday();
+  const totalPaychecks = PAYCHECK_SCHEDULE_2026.length;
+  const completedPaychecks = PAYCHECK_SCHEDULE_2026.filter((paycheck) => parseDate(paycheck.dateKey) <= today);
+  const currentPaycheck = completedPaychecks[completedPaychecks.length - 1] || PAYCHECK_SCHEDULE_2026[0];
+  const nextPaycheck = PAYCHECK_SCHEDULE_2026.find((paycheck) => parseDate(paycheck.dateKey) > today);
+  const currentNumber = completedPaychecks.length === 0 ? 0 : currentPaycheck.paycheckNumber;
+  const remainingPaychecks = Math.max(totalPaychecks - currentNumber, 0);
+
+  return {
+    currentPaycheck,
+    currentNumber,
+    nextPaycheck,
+    remainingPaychecks,
+    totalPaychecks,
+  };
+}
+
+function renderPaycheckProgress() {
+  const { currentPaycheck, currentNumber, nextPaycheck, remainingPaychecks, totalPaychecks } = getPaycheckProgress();
+  const currentDate = parseDate(currentPaycheck.dateKey);
+
+  currentPaycheckTitle.textContent = `Paycheck ${currentNumber || 'not started'} of ${totalPaychecks}`;
+  currentPaycheckDetail.textContent = currentNumber === 0
+    ? `First scheduled paycheck is ${formatDate(currentDate)}.`
+    : `Current scheduled paycheck date: ${formatDate(currentDate)}.`;
+  currentPaycheckRemaining.textContent = `${remainingPaychecks} paycheck${remainingPaychecks === 1 ? '' : 's'} left`;
+  currentPaycheckDate.textContent = nextPaycheck
+    ? `Next: ${formatDate(parseDate(nextPaycheck.dateKey))}`
+    : '2026 schedule complete';
+}
+
 function getIncomeTotals() {
   return taxableIncomeEntries.reduce((totals, entry) => {
     const isFuture = isFutureIncomeEntry(entry);
@@ -687,6 +723,7 @@ function renderTaxableIncome(message) {
   futureTaxableIncomeJ1Total.textContent = formatCurrency(totals.future.j1);
   futureTaxableIncomeJ2Total.textContent = formatCurrency(totals.future.j2);
   taxableIncomeJsonOutput.value = getIncomeJson();
+  renderPaycheckProgress();
   futurePaycheckSummary.textContent = getFuturePaycheckSummary();
   renderFutureIncomeList();
   renderPaycheckScheduleBoxes();
@@ -731,6 +768,20 @@ function getPaycheckDateStatus(dateKey) {
   return 'future';
 }
 
+function getRunningIncomeTotalsThroughDate(dateKey) {
+  const paycheckDate = parseDate(dateKey);
+
+  return taxableIncomeEntries.reduce((totals, entry) => {
+    const entryDate = parseDate(entry.dateKey);
+    if (!entryDate || entryDate > paycheckDate) return totals;
+
+    totals.total += entry.amount;
+    if (entry.job === 'J1') totals.j1 += entry.amount;
+    if (entry.job === 'J2') totals.j2 += entry.amount;
+    return totals;
+  }, { total: 0, j1: 0, j2: 0 });
+}
+
 function renderPaycheckScheduleBoxes() {
   paycheckScheduleGrid.innerHTML = PAYCHECK_SCHEDULE_2026.map((paycheck) => {
     const date = parseDate(paycheck.dateKey);
@@ -739,6 +790,7 @@ function renderPaycheckScheduleBoxes() {
       .filter((entry) => entry.dateKey === paycheck.dateKey)
       .sort((a, b) => a.job.localeCompare(b.job) || a.category.localeCompare(b.category));
     const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
+    const runningTotals = getRunningIncomeTotalsThroughDate(paycheck.dateKey);
 
     return `
       <article class="paycheck-date-card paycheck-${status}">
@@ -748,6 +800,11 @@ function renderPaycheckScheduleBoxes() {
             <time datetime="${paycheck.dateKey}">${formatDate(date)}</time>
           </div>
           <strong>${formatCurrency(total)}</strong>
+        </div>
+        <div class="paycheck-running-total" aria-label="Running taxable income through paycheck ${paycheck.paycheckNumber}">
+          <span>Running taxable income</span>
+          <strong>${formatCurrency(runningTotals.total)}</strong>
+          <small>J1 ${formatCurrency(runningTotals.j1)} · J2 ${formatCurrency(runningTotals.j2)}</small>
         </div>
         <span class="paycheck-status-pill">${status === 'today' ? 'Today' : status}</span>
         <div class="paycheck-entry-list">
