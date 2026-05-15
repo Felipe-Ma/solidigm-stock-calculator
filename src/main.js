@@ -9,6 +9,11 @@ const NET_UNIT_OVERRIDES_KEY = 'netUnitOverrides';
 const TAXABLE_INCOME_INPUT_KEY = 'taxableIncomeInput';
 const TAXABLE_INCOME_ENTRIES_KEY = 'taxableIncomeEntries';
 const INCOME_BASELINES_KEY = 'incomeBaselines';
+const RETIREMENT_INPUT_KEY = 'retirementInput';
+const RETIREMENT_ENTRIES_KEY = 'retirementContributionEntries';
+const RETIREMENT_BASELINES_KEY = 'retirementBaselines';
+const RETIREMENT_CONTRIBUTION_CAP = 24500;
+const RETIREMENT_CAP_YEAR = 2026;
 const TAX_WITHHOLDING_RATE = 0.415;
 
 const DEFAULT_GRANTS = [
@@ -52,6 +57,9 @@ let netUnitOverrides = {};
 let taxableIncomeEntries = [];
 let taxableIncomeDraftInput = '';
 let incomeBaselines = { J1: '', J2: '' };
+let retirementContributionEntries = [];
+let retirementDraftInput = '';
+let retirementBaselines = { J1: '', J2: '' };
 
 const databaseStatus = document.querySelector('#database-status');
 const grantList = document.querySelector('#grant-list');
@@ -98,6 +106,39 @@ const clearAutofillPaychecksButton = document.querySelector('#clear-autofill-pay
 const resetFutureIncomeButton = document.querySelector('#reset-future-income');
 const resetFutureIncomeInlineButton = document.querySelector('#reset-future-income-inline');
 const resetAllIncomeButton = document.querySelector('#reset-all-income');
+const retirementInputField = document.querySelector('#retirement-input');
+const retirementJsonOutput = document.querySelector('#retirement-json');
+const retirementTotal = document.querySelector('#retirement-total');
+const retirementJ1Total = document.querySelector('#retirement-j1-total');
+const retirementJ2Total = document.querySelector('#retirement-j2-total');
+const futureRetirementTotal = document.querySelector('#future-retirement-total');
+const futureRetirementJ1Total = document.querySelector('#future-retirement-j1-total');
+const futureRetirementJ2Total = document.querySelector('#future-retirement-j2-total');
+const retirementYearlyCap = document.querySelector('#retirement-yearly-cap');
+const retirementCurrentYearTotal = document.querySelector('#retirement-current-year-total');
+const retirementCapRemaining = document.querySelector('#retirement-cap-remaining');
+const retirementCapStatusCard = document.querySelector('#retirement-cap-status-card');
+const retirementStatus = document.querySelector('#retirement-status');
+const retirementSummary = document.querySelector('#retirement-summary');
+const retirementTable = document.querySelector('#retirement-table');
+const retirementEntryForm = document.querySelector('#retirement-entry-form');
+const retirementDateInput = document.querySelector('#retirement-date');
+const retirementAmountInput = document.querySelector('#retirement-amount');
+const retirementCategoryInput = document.querySelector('#retirement-category');
+const retirementJobInput = document.querySelector('#retirement-job');
+const importRetirementRowsButton = document.querySelector('#import-retirement-rows');
+const copyRetirementJsonButton = document.querySelector('#copy-retirement-json');
+const downloadRetirementJsonButton = document.querySelector('#download-retirement-json');
+const retirementBaselineJ1Input = document.querySelector('#retirement-baseline-j1');
+const retirementBaselineJ2Input = document.querySelector('#retirement-baseline-j2');
+const autofillFutureRetirementButton = document.querySelector('#autofill-future-retirement');
+const clearAutofillRetirementButton = document.querySelector('#clear-autofill-retirement');
+const resetFutureRetirementButton = document.querySelector('#reset-future-retirement');
+const resetFutureRetirementInlineButton = document.querySelector('#reset-future-retirement-inline');
+const resetAllRetirementButton = document.querySelector('#reset-all-retirement');
+const futureRetirementSummary = document.querySelector('#future-retirement-summary');
+const futureRetirementList = document.querySelector('#future-retirement-list');
+const futureRetirementListSummary = document.querySelector('#future-retirement-list-summary');
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -216,6 +257,27 @@ function saveTaxableIncomeDraftInput() {
   if (!database) return;
   writeMetadata(TAXABLE_INCOME_INPUT_KEY, taxableIncomeDraftInput).catch(() => {
     taxableIncomeStatus.textContent = 'Could not save pasted income rows locally.';
+  });
+}
+
+function saveRetirementContributionEntries() {
+  if (!database) return;
+  writeMetadata(RETIREMENT_ENTRIES_KEY, retirementContributionEntries).catch(() => {
+    retirementStatus.textContent = 'Could not save 401k contribution entries locally.';
+  });
+}
+
+function saveRetirementBaselines() {
+  if (!database) return;
+  writeMetadata(RETIREMENT_BASELINES_KEY, retirementBaselines).catch(() => {
+    retirementStatus.textContent = 'Could not save 401k baselines locally.';
+  });
+}
+
+function saveRetirementDraftInput() {
+  if (!database) return;
+  writeMetadata(RETIREMENT_INPUT_KEY, retirementDraftInput).catch(() => {
+    retirementStatus.textContent = 'Could not save pasted 401k rows locally.';
   });
 }
 
@@ -728,6 +790,9 @@ function formatIncomeSource(entry) {
   if (entry.source === 'paycheck-autofill') {
     return `Autofill #${entry.paycheckNumber || ''}`;
   }
+  if (entry.source === 'retirement-autofill') {
+    return `401k autofill #${entry.paycheckNumber || ''}`;
+  }
   return 'Manual';
 }
 
@@ -831,6 +896,336 @@ function downloadIncomeJson() {
   link.click();
   URL.revokeObjectURL(link.href);
   renderTaxableIncome('Downloaded taxable-income-entries.json for VS Code.');
+}
+
+
+function createRetirementContributionEntry({ date, amount, category, job, source = 'manual', paycheckNumber }) {
+  return {
+    id: crypto.randomUUID(),
+    dateKey: toDateKey(date),
+    amount,
+    category: normalizeIncomeCategory(category),
+    job: normalizeIncomeJob(job),
+    source,
+    paycheckNumber,
+  };
+}
+
+function sanitizeSavedRetirementEntries(entries) {
+  if (!Array.isArray(entries)) return [];
+
+  return entries
+    .map((entry) => {
+      const date = parseDate(entry.dateKey || entry.date || '');
+      const amount = parseCurrencyAmount(entry.amount);
+      if (!date || !amount || amount < 0) return null;
+      return {
+        id: entry.id || crypto.randomUUID(),
+        dateKey: toDateKey(date),
+        amount,
+        category: normalizeIncomeCategory(entry.category || ''),
+        job: normalizeIncomeJob(entry.job || ''),
+        source: entry.source || 'manual',
+        paycheckNumber: entry.paycheckNumber,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => parseDate(a.dateKey) - parseDate(b.dateKey));
+}
+
+function parseRetirementContributionEntries(input) {
+  const entries = [];
+  const errors = [];
+
+  input.split(/\r?\n/).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    const fields = splitCommaFields(trimmed);
+    if (fields.length < 4) {
+      errors.push(`Line ${index + 1} needs date, 401k contribution, category, and job.`);
+      return;
+    }
+
+    const [dateValue, amountValue, ...remainingFields] = fields;
+    const jobValue = remainingFields.pop();
+    const categoryValue = remainingFields.join(', ');
+    const date = parseDate(dateValue);
+    const amount = parseCurrencyAmount(amountValue);
+
+    if (!date) {
+      errors.push(`Line ${index + 1} has an invalid date.`);
+      return;
+    }
+    if (!amount || amount < 0) {
+      errors.push(`Line ${index + 1} has an invalid 401k contribution amount.`);
+      return;
+    }
+
+    entries.push(createRetirementContributionEntry({ date, amount, category: categoryValue, job: jobValue }));
+  });
+
+  return { entries, errors };
+}
+
+function getRetirementJson() {
+  return JSON.stringify({
+    yearlyContributionCap: RETIREMENT_CONTRIBUTION_CAP,
+    capYear: RETIREMENT_CAP_YEAR,
+    retirementBaselines,
+    paycheckSchedule2026: PAYCHECK_SCHEDULE_2026,
+    retirementContributionEntries,
+  }, null, 2);
+}
+
+function isFutureRetirementEntry(entry) {
+  const entryDate = parseDate(entry.dateKey);
+  return entryDate && entryDate > startOfToday();
+}
+
+function getFutureRetirementEntries() {
+  return retirementContributionEntries
+    .filter(isFutureRetirementEntry)
+    .sort((a, b) => parseDate(a.dateKey) - parseDate(b.dateKey));
+}
+
+function isRetirementCapYearEntry(entry) {
+  const entryDate = parseDate(entry.dateKey);
+  return entryDate && entryDate.getFullYear() === RETIREMENT_CAP_YEAR;
+}
+
+function getRetirementTotals() {
+  return retirementContributionEntries.reduce((totals, entry) => {
+    const isFuture = isFutureRetirementEntry(entry);
+    const isCapYear = isRetirementCapYearEntry(entry);
+    totals.total += entry.amount;
+    if (entry.job === 'J1') totals.j1 += entry.amount;
+    if (entry.job === 'J2') totals.j2 += entry.amount;
+    if (isFuture) {
+      totals.future.total += entry.amount;
+      if (entry.job === 'J1') totals.future.j1 += entry.amount;
+      if (entry.job === 'J2') totals.future.j2 += entry.amount;
+    }
+    if (isCapYear) totals.capYearTotal += entry.amount;
+    totals.byCategory[entry.category] = (totals.byCategory[entry.category] || 0) + entry.amount;
+    return totals;
+  }, { total: 0, j1: 0, j2: 0, future: { total: 0, j1: 0, j2: 0 }, capYearTotal: 0, byCategory: {} });
+}
+
+function getFutureRetirementSummary() {
+  const futurePaychecks = getFuturePaycheckSchedule();
+  const j1Baseline = parseCurrencyAmount(retirementBaselines.J1);
+  const j2Baseline = parseCurrencyAmount(retirementBaselines.J2);
+  const projectedTotal = futurePaychecks.length * (j1Baseline + j2Baseline);
+  return `${futurePaychecks.length} future 2026 paycheck date${futurePaychecks.length === 1 ? '' : 's'} available for 401k autofill. Baseline projection: ${formatCurrency(projectedTotal)}.`;
+}
+
+function renderFutureRetirementList() {
+  const futureEntries = getFutureRetirementEntries();
+  const futureAutofillCount = futureEntries.filter((entry) => entry.source === 'retirement-autofill').length;
+  futureRetirementListSummary.textContent = futureEntries.length === 0
+    ? 'No future 401k contribution entries yet.'
+    : `${futureEntries.length} future 401k entr${futureEntries.length === 1 ? 'y' : 'ies'} visible here, including ${futureAutofillCount} autofilled entr${futureAutofillCount === 1 ? 'y' : 'ies'}.`;
+
+  futureRetirementList.innerHTML = futureEntries.length === 0
+    ? '<p class="empty-row future-income-empty-state">Autofill or manually add future-dated 401k contributions to see them here.</p>'
+    : futureEntries.map((entry) => {
+      const date = parseDate(entry.dateKey);
+      return `
+        <article class="future-income-card income-${toClassToken(entry.job)}">
+          <div>
+            <time datetime="${entry.dateKey}">${formatDate(date)}</time>
+            <strong>${formatCurrency(entry.amount)}</strong>
+            <span>${escapeHtml(entry.category)} · ${escapeHtml(entry.job)} · ${formatIncomeSource(entry)}</span>
+          </div>
+          <button class="text-button" type="button" data-action="remove-retirement-entry" data-entry-id="${entry.id}">Remove</button>
+        </article>
+      `;
+    }).join('');
+}
+
+function renderRetirementContributions(message) {
+  const totals = getRetirementTotals();
+  const capRemaining = RETIREMENT_CONTRIBUTION_CAP - totals.capYearTotal;
+  retirementTotal.textContent = formatCurrency(totals.total);
+  retirementJ1Total.textContent = formatCurrency(totals.j1);
+  retirementJ2Total.textContent = formatCurrency(totals.j2);
+  futureRetirementTotal.textContent = formatCurrency(totals.future.total);
+  futureRetirementJ1Total.textContent = formatCurrency(totals.future.j1);
+  futureRetirementJ2Total.textContent = formatCurrency(totals.future.j2);
+  retirementYearlyCap.textContent = formatCurrency(RETIREMENT_CONTRIBUTION_CAP);
+  retirementCurrentYearTotal.textContent = formatCurrency(totals.capYearTotal);
+  retirementCapRemaining.textContent = capRemaining >= 0 ? formatCurrency(capRemaining) : `${formatCurrency(Math.abs(capRemaining))} over`;
+  retirementCapStatusCard.classList.toggle('is-over-cap', capRemaining < 0);
+  retirementJsonOutput.value = getRetirementJson();
+  futureRetirementSummary.textContent = getFutureRetirementSummary();
+  renderFutureRetirementList();
+
+  const capMessage = capRemaining < 0
+    ? ` You are ${formatCurrency(Math.abs(capRemaining))} over the ${RETIREMENT_CAP_YEAR} cap.`
+    : ` ${formatCurrency(capRemaining)} remains under the ${RETIREMENT_CAP_YEAR} cap.`;
+  retirementStatus.textContent = message || `${retirementContributionEntries.length} 401k contribution entr${retirementContributionEntries.length === 1 ? 'y' : 'ies'} saved locally as JSON.${capMessage}`;
+
+  const summaryCards = Object.entries(totals.byCategory).map(([label, value]) => ({ label, value, type: 'category' }));
+
+  retirementSummary.innerHTML = summaryCards.length === 0
+    ? '<p class="empty-row income-empty-state">Add or import 401k contributions to calculate category totals.</p>'
+    : summaryCards.map((card) => `
+      <article class="income-summary-card income-${escapeHtml(card.type)}">
+        <span>${escapeHtml(card.label)}</span>
+        <strong>${formatCurrency(card.value)}</strong>
+      </article>
+    `).join('');
+
+  const rows = [...retirementContributionEntries].sort((a, b) => parseDate(a.dateKey) - parseDate(b.dateKey));
+  retirementTable.innerHTML = rows.length === 0
+    ? '<tr><td colspan="6" class="income-table-empty">No 401k contribution entries yet.</td></tr>'
+    : rows.map((entry) => {
+      const date = parseDate(entry.dateKey);
+      return `
+        <tr class="income-row income-${toClassToken(entry.job)}${isFutureRetirementEntry(entry) ? ' future-income-row' : ''}">
+          <td><time datetime="${entry.dateKey}">${formatDate(date)}</time></td>
+          <td>${formatCurrency(entry.amount)}</td>
+          <td>${escapeHtml(entry.category)}</td>
+          <td><span class="job-pill job-${toClassToken(entry.job)}">${escapeHtml(entry.job)}</span></td>
+          <td>${formatIncomeSource(entry)}</td>
+          <td><button class="text-button" type="button" data-action="remove-retirement-entry" data-entry-id="${entry.id}">Remove</button></td>
+        </tr>
+      `;
+    }).join('');
+}
+
+function persistRetirementContributionEntries(message) {
+  retirementContributionEntries = sanitizeSavedRetirementEntries(retirementContributionEntries);
+  renderRetirementContributions(message);
+  saveRetirementContributionEntries();
+}
+
+function addRetirementContributionEntry(event) {
+  event.preventDefault();
+  const date = parseDate(retirementDateInput.value);
+  const amount = parseCurrencyAmount(retirementAmountInput.value);
+
+  if (!date || !amount || amount < 0) {
+    renderRetirementContributions('Enter a valid date and 401k contribution amount before saving.');
+    return;
+  }
+
+  retirementContributionEntries = [
+    ...retirementContributionEntries,
+    createRetirementContributionEntry({
+      date,
+      amount,
+      category: retirementCategoryInput.value,
+      job: retirementJobInput.value,
+    }),
+  ];
+  retirementEntryForm.reset();
+  retirementCategoryInput.value = 'Normal paycheck';
+  retirementJobInput.value = 'J1';
+  persistRetirementContributionEntries('Saved 401k contribution entry locally as JSON.');
+}
+
+function updateRetirementBaseline(job, value) {
+  retirementBaselines = { ...retirementBaselines, [job]: value };
+  renderRetirementContributions('Updated future 401k contribution baseline.');
+  saveRetirementBaselines();
+}
+
+function autofillFutureRetirementContributions() {
+  const jobs = [
+    { job: 'J1', amount: parseCurrencyAmount(retirementBaselines.J1) },
+    { job: 'J2', amount: parseCurrencyAmount(retirementBaselines.J2) },
+  ].filter(({ amount }) => amount > 0);
+  const futurePaychecks = getFuturePaycheckSchedule();
+
+  if (jobs.length === 0) {
+    renderRetirementContributions('Enter a J1 and/or J2 401k amount before autofilling future contributions.');
+    return;
+  }
+  if (futurePaychecks.length === 0) {
+    renderRetirementContributions('No future 2026 paycheck dates remain in the hardcoded schedule.');
+    return;
+  }
+
+  retirementContributionEntries = retirementContributionEntries.filter((entry) => entry.source !== 'retirement-autofill');
+  const generatedEntries = futurePaychecks.flatMap((paycheck) => jobs.map(({ job, amount }) => createRetirementContributionEntry({
+    date: parseDate(paycheck.dateKey),
+    amount,
+    category: 'Normal paycheck',
+    job,
+    source: 'retirement-autofill',
+    paycheckNumber: paycheck.paycheckNumber,
+  })));
+
+  retirementContributionEntries = [...retirementContributionEntries, ...generatedEntries];
+  persistRetirementContributionEntries(`Autofilled ${generatedEntries.length} future 401k contribution entr${generatedEntries.length === 1 ? 'y' : 'ies'} from the 2026 schedule.`);
+}
+
+function importRetirementContributionRows() {
+  const { entries, errors } = parseRetirementContributionEntries(retirementInputField.value);
+  if (entries.length > 0) {
+    retirementContributionEntries = [...retirementContributionEntries, ...entries];
+    retirementDraftInput = '';
+    retirementInputField.value = '';
+    saveRetirementDraftInput();
+  }
+
+  const message = errors.length > 0
+    ? `Imported ${entries.length} 401k entr${entries.length === 1 ? 'y' : 'ies'}. ${errors.join(' ')}`
+    : `Imported ${entries.length} 401k entr${entries.length === 1 ? 'y' : 'ies'} from pasted rows.`;
+  persistRetirementContributionEntries(message);
+}
+
+function removeRetirementContributionEntry(id) {
+  retirementContributionEntries = retirementContributionEntries.filter((entry) => entry.id !== id);
+  persistRetirementContributionEntries('Removed 401k contribution entry and updated saved JSON.');
+}
+
+function clearAutofillRetirementContributions() {
+  const removedCount = retirementContributionEntries.filter((entry) => entry.source === 'retirement-autofill').length;
+  retirementContributionEntries = retirementContributionEntries.filter((entry) => entry.source !== 'retirement-autofill');
+  persistRetirementContributionEntries(`Cleared ${removedCount} autofilled 401k entr${removedCount === 1 ? 'y' : 'ies'}.`);
+}
+
+function resetFutureRetirementContributions() {
+  const removedCount = getFutureRetirementEntries().length;
+  retirementContributionEntries = retirementContributionEntries.filter((entry) => !isFutureRetirementEntry(entry));
+  persistRetirementContributionEntries(`Reset ${removedCount} future 401k contribution entr${removedCount === 1 ? 'y' : 'ies'}.`);
+}
+
+function resetAllRetirementContributions() {
+  const removedCount = retirementContributionEntries.length;
+  retirementContributionEntries = [];
+  persistRetirementContributionEntries(`Reset ${removedCount} 401k contribution entr${removedCount === 1 ? 'y' : 'ies'}, including current and future entries.`);
+}
+
+function updateRetirementDraft(value) {
+  retirementDraftInput = value;
+  saveRetirementDraftInput();
+}
+
+async function copyRetirementJson() {
+  const json = getRetirementJson();
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(json);
+    renderRetirementContributions('Copied 401k JSON for VS Code.');
+    return;
+  }
+
+  retirementJsonOutput.select();
+  document.execCommand('copy');
+  renderRetirementContributions('Copied 401k JSON for VS Code.');
+}
+
+function downloadRetirementJson() {
+  const blob = new Blob([getRetirementJson()], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = '401k-contribution-entries.json';
+  link.click();
+  URL.revokeObjectURL(link.href);
+  renderRetirementContributions('Downloaded 401k-contribution-entries.json for VS Code.');
 }
 
 function switchTab(targetPanelId) {
@@ -1106,6 +1501,9 @@ async function initializeApp() {
   const savedTaxableIncomeInput = await readMetadata(TAXABLE_INCOME_INPUT_KEY);
   const savedTaxableIncomeEntries = await readMetadata(TAXABLE_INCOME_ENTRIES_KEY);
   const savedIncomeBaselines = await readMetadata(INCOME_BASELINES_KEY);
+  const savedRetirementInput = await readMetadata(RETIREMENT_INPUT_KEY);
+  const savedRetirementEntries = await readMetadata(RETIREMENT_ENTRIES_KEY);
+  const savedRetirementBaselines = await readMetadata(RETIREMENT_BASELINES_KEY);
   stockPrice = Number(savedStockPrice) || 0;
   grantGrossOverrides = savedGrantGrossOverrides || {};
   netUnitOverrides = savedNetUnitOverrides || {};
@@ -1115,6 +1513,12 @@ async function initializeApp() {
   incomeBaselineJ1Input.value = incomeBaselines.J1 || '';
   incomeBaselineJ2Input.value = incomeBaselines.J2 || '';
   taxableIncomeEntries = sanitizeSavedIncomeEntries(savedTaxableIncomeEntries || parseTaxableIncomeEntries(taxableIncomeDraftInput).entries);
+  retirementDraftInput = savedRetirementInput || '';
+  retirementInputField.value = retirementDraftInput;
+  retirementBaselines = { J1: '', J2: '', ...(savedRetirementBaselines || {}) };
+  retirementBaselineJ1Input.value = retirementBaselines.J1 || '';
+  retirementBaselineJ2Input.value = retirementBaselines.J2 || '';
+  retirementContributionEntries = sanitizeSavedRetirementEntries(savedRetirementEntries || parseRetirementContributionEntries(retirementDraftInput).entries);
   stockPriceInput.value = stockPrice || '';
   grants = await readGrants();
 
@@ -1129,6 +1533,7 @@ async function initializeApp() {
   renderGrantInputs();
   renderSchedule();
   renderTaxableIncome();
+  renderRetirementContributions();
 }
 
 function updateStockPrice(value) {
@@ -1142,21 +1547,37 @@ addGrantButton.addEventListener('click', addGrant);
 resetCorrectionsButton.addEventListener('click', resetManualCorrections);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
 taxableIncomeInputField.addEventListener('input', (event) => updateTaxableIncomeDraft(event.target.value));
+retirementInputField.addEventListener('input', (event) => updateRetirementDraft(event.target.value));
 incomeEntryForm.addEventListener('submit', addTaxableIncomeEntry);
+retirementEntryForm.addEventListener('submit', addRetirementContributionEntry);
 importIncomeRowsButton.addEventListener('click', importTaxableIncomeRows);
+importRetirementRowsButton.addEventListener('click', importRetirementContributionRows);
 copyIncomeJsonButton.addEventListener('click', () => {
   copyIncomeJson().catch(() => {
     renderTaxableIncome('Could not copy JSON automatically. Select the JSON text and copy it manually.');
   });
 });
 downloadIncomeJsonButton.addEventListener('click', downloadIncomeJson);
+copyRetirementJsonButton.addEventListener('click', () => {
+  copyRetirementJson().catch(() => {
+    renderRetirementContributions('Could not copy JSON automatically. Select the JSON text and copy it manually.');
+  });
+});
+downloadRetirementJsonButton.addEventListener('click', downloadRetirementJson);
 incomeBaselineJ1Input.addEventListener('input', (event) => updateIncomeBaseline('J1', event.target.value));
 incomeBaselineJ2Input.addEventListener('input', (event) => updateIncomeBaseline('J2', event.target.value));
+retirementBaselineJ1Input.addEventListener('input', (event) => updateRetirementBaseline('J1', event.target.value));
+retirementBaselineJ2Input.addEventListener('input', (event) => updateRetirementBaseline('J2', event.target.value));
 autofillFuturePaychecksButton.addEventListener('click', autofillFuturePaychecks);
 clearAutofillPaychecksButton.addEventListener('click', clearAutofillPaychecks);
 resetFutureIncomeButton.addEventListener('click', resetFutureIncomeEntries);
 resetFutureIncomeInlineButton.addEventListener('click', resetFutureIncomeEntries);
 resetAllIncomeButton.addEventListener('click', resetAllTaxableIncomeEntries);
+autofillFutureRetirementButton.addEventListener('click', autofillFutureRetirementContributions);
+clearAutofillRetirementButton.addEventListener('click', clearAutofillRetirementContributions);
+resetFutureRetirementButton.addEventListener('click', resetFutureRetirementContributions);
+resetFutureRetirementInlineButton.addEventListener('click', resetFutureRetirementContributions);
+resetAllRetirementButton.addEventListener('click', resetAllRetirementContributions);
 tabButtons.forEach((button) => {
   button.addEventListener('click', () => switchTab(button.dataset.tabTarget));
 });
@@ -1178,10 +1599,16 @@ document.querySelector('#income-panel').addEventListener('click', (event) => {
     renderTaxableIncome(`Selected ${formatDate(parseDate(event.target.dataset.dateKey))} for the next taxable income entry.`);
   }
 });
+document.querySelector('#retirement-panel').addEventListener('click', (event) => {
+  if (event.target.dataset.action === 'remove-retirement-entry') {
+    removeRetirementContributionEntry(event.target.dataset.entryId);
+  }
+});
 initializeApp().catch(() => {
   databaseStatus.textContent = 'Could not open the local database. Refresh and try again.';
   grants = DEFAULT_GRANTS;
   renderGrantInputs();
   renderSchedule();
   renderTaxableIncome();
+  renderRetirementContributions();
 });
