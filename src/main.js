@@ -6,8 +6,8 @@ const QUARTERS_IN_LTI_PLAN = 16;
 const STOCK_PRICE_KEY = 'stockPrice';
 
 const DEFAULT_GRANTS = [
-  { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', firstVestDate: '2025-01-30' },
-  { id: crypto.randomUUID(), label: 'Grant B', shares: '800', firstVestDate: '2025-04-30' },
+  { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', firstVestDate: '2025-01-30', vestCorrections: {} },
+  { id: crypto.randomUUID(), label: 'Grant B', shares: '800', firstVestDate: '2025-04-30', vestCorrections: {} },
 ];
 
 let grants = [];
@@ -151,6 +151,16 @@ function formatShares(value) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
 }
 
+function formatSignedShares(value) {
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${formatShares(value)}`;
+}
+
+function parseShareAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
 function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value);
 }
@@ -169,7 +179,7 @@ function getSchedule() {
   const rowsByDate = new Map();
 
   grants.forEach((grant) => {
-    const shares = Number(grant.shares);
+    const shares = parseShareAmount(grant.shares);
     const firstVestDate = parseDate(grant.firstVestDate);
 
     if (!shares || shares <= 0 || !firstVestDate) return;
@@ -179,13 +189,19 @@ function getSchedule() {
       const key = toDateKey(date);
       if (!rowsByDate.has(key)) rowsByDate.set(key, { date, total: 0, grants: [] });
 
+      const vestNumber = index + 1;
+      const correction = parseShareAmount(grant.vestCorrections?.[vestNumber]);
+      const effectiveAmount = sharesPerQuarter + correction;
       const row = rowsByDate.get(key);
-      row.total += sharesPerQuarter;
+      row.total += effectiveAmount;
       row.grants.push({
+        id: grant.id,
         label: grant.label || 'Untitled grant',
-        amount: sharesPerQuarter,
-        vestNumber: index + 1,
-        remainingPercentage: ((QUARTERS_IN_LTI_PLAN - (index + 1)) / QUARTERS_IN_LTI_PLAN) * 100,
+        amount: effectiveAmount,
+        baseAmount: sharesPerQuarter,
+        correction,
+        vestNumber,
+        remainingPercentage: ((QUARTERS_IN_LTI_PLAN - vestNumber) / QUARTERS_IN_LTI_PLAN) * 100,
       });
     });
   });
@@ -248,21 +264,26 @@ function renderSchedule() {
     <table class="schedule-table">
       <thead>
         <tr>
+          <th>Payout period</th>
           <th>Date</th>
           <th>Vesting</th>
           <th>Vest value</th>
           <th>Running total</th>
-          <th>Grant breakdown</th>
+          <th>Grant breakdown & corrections</th>
         </tr>
       </thead>
       <tbody>
-        ${schedule.map((row) => {
+        ${schedule.map((row, index) => {
           runningShares += row.total;
           const vestValue = row.total * stockPrice;
           const runningValue = runningShares * stockPrice;
 
           return `
             <tr>
+              <td>
+                <strong class="payout-period">Period ${index + 1}</strong>
+                <span class="period-detail">${row.grants.length} grant vest${row.grants.length === 1 ? '' : 's'}</span>
+              </td>
               <td><time datetime="${toDateKey(row.date)}">${formatDate(row.date)}</time></td>
               <td class="shares-cell">${formatShares(row.total)} shares</td>
               <td class="value-cell">${formatCurrency(vestValue)}</td>
@@ -276,8 +297,22 @@ function renderSchedule() {
                     <div class="grant-vest-line">
                       <span class="grant-name">${escapeHtml(grant.label)}</span>
                       <span>Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
-                      <span>${formatShares(grant.amount)} shares</span>
+                      <span>Base ${formatShares(grant.baseAmount)}</span>
+                      <label class="correction-field">
+                        Correction
+                        <input
+                          data-action="correct-vest"
+                          data-grant-id="${grant.id}"
+                          data-vest-number="${grant.vestNumber}"
+                          type="number"
+                          step="0.01"
+                          placeholder="0"
+                          value="${grant.correction || ''}"
+                        />
+                      </label>
+                      <span class="corrected-shares">${formatShares(grant.amount)} shares</span>
                       <span class="remaining-percent">${formatShares(grant.remainingPercentage)}% remaining</span>
+                      ${grant.correction ? `<span class="correction-note">${formatSignedShares(grant.correction)} share correction</span>` : ''}
                     </div>
                   `).join('')}
                 </div>
@@ -298,10 +333,27 @@ function updateGrant(id, field, value) {
   scheduleSave();
 }
 
+function updateVestCorrection(grantId, vestNumber, value) {
+  grants = grants.map((grant) => {
+    if (grant.id !== grantId) return grant;
+
+    const vestCorrections = { ...(grant.vestCorrections || {}) };
+    if (value === '') {
+      delete vestCorrections[vestNumber];
+    } else {
+      vestCorrections[vestNumber] = value;
+    }
+
+    return { ...grant, vestCorrections };
+  });
+  renderSchedule();
+  scheduleSave();
+}
+
 function addGrant() {
   grants = [
     ...grants,
-    { id: crypto.randomUUID(), label: `Grant ${String.fromCharCode(65 + grants.length)}`, shares: '', firstVestDate: '' },
+    { id: crypto.randomUUID(), label: `Grant ${String.fromCharCode(65 + grants.length)}`, shares: '', firstVestDate: '', vestCorrections: {} },
   ];
   renderGrantInputs();
   renderSchedule();
@@ -354,6 +406,10 @@ function updateStockPrice(value) {
 addGrantButton.disabled = true;
 addGrantButton.addEventListener('click', addGrant);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
+scheduleGrid.addEventListener('change', (event) => {
+  if (event.target.dataset.action !== 'correct-vest') return;
+  updateVestCorrection(event.target.dataset.grantId, event.target.dataset.vestNumber, event.target.value);
+});
 initializeApp().catch(() => {
   databaseStatus.textContent = 'Could not open the local database. Refresh and try again.';
   renderGrantInputs();
