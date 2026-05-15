@@ -1136,6 +1136,36 @@ select:focus {
   white-space: nowrap;
 }
 
+.paycheck-running-total {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+}
+
+.paycheck-running-total span,
+.paycheck-running-total small {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.paycheck-running-total strong {
+  color: #0f172a;
+  font-size: 1.12rem;
+  letter-spacing: -0.04em;
+}
+
+.paycheck-running-total small {
+  color: #475569;
+  font-size: 0.68rem;
+  text-transform: none;
+}
+
 .paycheck-status-pill {
   justify-self: start;
   padding: 4px 8px;

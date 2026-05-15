@@ -657,6 +657,20 @@ function getPaycheckDateStatus(dateKey) {
   return 'future';
 }
 
+function getRunningIncomeTotalsThroughDate(dateKey) {
+  const paycheckDate = parseDate(dateKey);
+
+  return taxableIncomeEntries.reduce((totals, entry) => {
+    const entryDate = parseDate(entry.dateKey);
+    if (!entryDate || entryDate > paycheckDate) return totals;
+
+    totals.total += entry.amount;
+    if (entry.job === 'J1') totals.j1 += entry.amount;
+    if (entry.job === 'J2') totals.j2 += entry.amount;
+    return totals;
+  }, { total: 0, j1: 0, j2: 0 });
+}
+
 function renderPaycheckScheduleBoxes() {
   paycheckScheduleGrid.innerHTML = PAYCHECK_SCHEDULE_2026.map((paycheck) => {
     const date = parseDate(paycheck.dateKey);
@@ -665,6 +679,7 @@ function renderPaycheckScheduleBoxes() {
       .filter((entry) => entry.dateKey === paycheck.dateKey)
       .sort((a, b) => a.job.localeCompare(b.job) || a.category.localeCompare(b.category));
     const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
+    const runningTotals = getRunningIncomeTotalsThroughDate(paycheck.dateKey);
 
     return `
       <article class="paycheck-date-card paycheck-${status}">
@@ -674,6 +689,11 @@ function renderPaycheckScheduleBoxes() {
             <time datetime="${paycheck.dateKey}">${formatDate(date)}</time>
           </div>
           <strong>${formatCurrency(total)}</strong>
+        </div>
+        <div class="paycheck-running-total" aria-label="Running taxable income through paycheck ${paycheck.paycheckNumber}">
+          <span>Running taxable income</span>
+          <strong>${formatCurrency(runningTotals.total)}</strong>
+          <small>J1 ${formatCurrency(runningTotals.j1)} · J2 ${formatCurrency(runningTotals.j2)}</small>
         </div>
         <span class="paycheck-status-pill">${status === 'today' ? 'Today' : status}</span>
         <div class="paycheck-entry-list">
