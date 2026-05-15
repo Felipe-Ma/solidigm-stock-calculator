@@ -4,6 +4,7 @@ const GRANT_STORE = 'grants';
 const METADATA_STORE = 'metadata';
 const QUARTERS_IN_LTI_PLAN = 16;
 const STOCK_PRICE_KEY = 'stockPrice';
+const TAX_WITHHOLDING_RATE = 0.415;
 
 const DEFAULT_GRANTS = [
   { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', firstVestDate: '2025-01-30', vestCorrections: {} },
@@ -165,6 +166,10 @@ function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value);
 }
 
+function getAfterTaxValue(value) {
+  return value * (1 - TAX_WITHHOLDING_RATE);
+}
+
 function startOfToday() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -241,12 +246,12 @@ function renderGrantInputs() {
 function renderSchedule() {
   const schedule = getSchedule();
   const totalShares = schedule.reduce((sum, row) => sum + row.total, 0);
-  const estimatedValue = totalShares * stockPrice;
+  const estimatedGrossValue = totalShares * stockPrice;
   const nextRow = schedule.find((row) => row.date >= startOfToday()) || schedule[0];
 
   grandTotal.textContent = formatShares(totalShares);
-  totalValue.textContent = formatCurrency(estimatedValue);
-  nextVestValue.textContent = formatCurrency((nextRow?.total || 0) * stockPrice);
+  totalValue.textContent = formatCurrency(getAfterTaxValue(estimatedGrossValue));
+  nextVestValue.textContent = formatCurrency(getAfterTaxValue((nextRow?.total || 0) * stockPrice));
   scheduleGrid.replaceChildren();
 
   if (schedule.length === 0) {
@@ -258,73 +263,83 @@ function renderSchedule() {
   }
 
   let runningShares = 0;
-  const tableWrapper = document.createElement('div');
-  tableWrapper.className = 'schedule-table-wrapper';
-  tableWrapper.innerHTML = `
-    <table class="schedule-table">
-      <thead>
-        <tr>
-          <th>Payout period</th>
-          <th>Date</th>
-          <th>Vesting</th>
-          <th>Vest value</th>
-          <th>Running total</th>
-          <th>Grant breakdown & corrections</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${schedule.map((row, index) => {
-          runningShares += row.total;
-          const vestValue = row.total * stockPrice;
-          const runningValue = runningShares * stockPrice;
+  const periodList = document.createElement('div');
+  periodList.className = 'payout-period-list';
+  periodList.innerHTML = schedule.map((row, index) => {
+    runningShares += row.total;
+    const grossValue = row.total * stockPrice;
+    const withheldValue = grossValue * TAX_WITHHOLDING_RATE;
+    const netValue = getAfterTaxValue(grossValue);
+    const runningGrossValue = runningShares * stockPrice;
+    const runningNetValue = getAfterTaxValue(runningGrossValue);
 
-          return `
-            <tr>
-              <td>
-                <strong class="payout-period">Period ${index + 1}</strong>
-                <span class="period-detail">${row.grants.length} grant vest${row.grants.length === 1 ? '' : 's'}</span>
-              </td>
-              <td><time datetime="${toDateKey(row.date)}">${formatDate(row.date)}</time></td>
-              <td class="shares-cell">${formatShares(row.total)} shares</td>
-              <td class="value-cell">${formatCurrency(vestValue)}</td>
-              <td>
-                <strong class="running-shares">${formatShares(runningShares)} shares</strong>
-                <span class="running-value">${formatCurrency(runningValue)}</span>
-              </td>
-              <td>
-                <div class="grant-breakdown">
-                  ${row.grants.map((grant) => `
-                    <div class="grant-vest-line">
-                      <span class="grant-name">${escapeHtml(grant.label)}</span>
-                      <span>Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
-                      <span>Base ${formatShares(grant.baseAmount)}</span>
-                      <label class="correction-field">
-                        Correction
-                        <input
-                          data-action="correct-vest"
-                          data-grant-id="${grant.id}"
-                          data-vest-number="${grant.vestNumber}"
-                          type="number"
-                          step="0.01"
-                          placeholder="0"
-                          value="${grant.correction || ''}"
-                        />
-                      </label>
-                      <span class="corrected-shares">${formatShares(grant.amount)} shares</span>
-                      <span class="remaining-percent">${formatShares(grant.remainingPercentage)}% remaining</span>
-                      ${grant.correction ? `<span class="correction-note">${formatSignedShares(grant.correction)} share correction</span>` : ''}
-                    </div>
-                  `).join('')}
-                </div>
-              </td>
-            </tr>
-          `;
-        }).join('')}
-      </tbody>
-    </table>
-  `;
+    return `
+      <article class="payout-card">
+        <div class="payout-card-header">
+          <div>
+            <strong class="payout-period">Period ${index + 1}</strong>
+            <time datetime="${toDateKey(row.date)}">${formatDate(row.date)}</time>
+          </div>
+          <div class="combined-payout">
+            <span>${formatShares(row.total)} shares</span>
+            <small>combined payout from ${row.grants.length} grant${row.grants.length === 1 ? '' : 's'}</small>
+          </div>
+        </div>
 
-  scheduleGrid.append(tableWrapper);
+        <div class="payout-summary-grid" aria-label="Payout period totals">
+          <div class="payout-summary-item">
+            <span>Gross value</span>
+            <strong>${formatCurrency(grossValue)}</strong>
+          </div>
+          <div class="payout-summary-item withholding-item">
+            <span>41.5% tax withheld</span>
+            <strong>−${formatCurrency(withheldValue)}</strong>
+          </div>
+          <div class="payout-summary-item net-item">
+            <span>Net payout</span>
+            <strong>${formatCurrency(netValue)}</strong>
+          </div>
+          <div class="payout-summary-item running-item">
+            <span>Running shares</span>
+            <strong>${formatShares(runningShares)}</strong>
+          </div>
+          <div class="payout-summary-item running-item">
+            <span>Running net value</span>
+            <strong>${formatCurrency(runningNetValue)}</strong>
+          </div>
+        </div>
+
+        <details class="grant-breakdown-details">
+          <summary>Adjust individual grant vests</summary>
+          <div class="grant-breakdown">
+            ${row.grants.map((grant) => `
+              <div class="grant-vest-line">
+                <span class="grant-name">${escapeHtml(grant.label)}</span>
+                <span>Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
+                <span>Base ${formatShares(grant.baseAmount)}</span>
+                <label class="correction-field">
+                  Correction
+                  <input
+                    data-action="correct-vest"
+                    data-grant-id="${grant.id}"
+                    data-vest-number="${grant.vestNumber}"
+                    type="number"
+                    step="0.01"
+                    placeholder="0"
+                    value="${grant.correction || ''}"
+                  />
+                </label>
+                <span class="corrected-shares">${formatShares(grant.amount)} shares</span>
+                ${grant.correction ? `<span class="correction-note">${formatSignedShares(grant.correction)} share correction</span>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        </details>
+      </article>
+    `;
+  }).join('');
+
+  scheduleGrid.append(periodList);
 }
 
 function updateGrant(id, field, value) {
