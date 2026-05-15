@@ -523,6 +523,67 @@ label {
   align-items: flex-start;
 }
 
+.income-paycheck-banner {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border: 1px solid #bfdbfe;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top left, rgba(96, 165, 250, 0.24), transparent 38%),
+    linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.income-paycheck-eyebrow {
+  display: block;
+  margin-bottom: 6px;
+  color: #2563eb;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.income-paycheck-banner strong {
+  display: block;
+  color: #0f172a;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.income-paycheck-banner p {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.income-paycheck-stats {
+  display: grid;
+  gap: 5px;
+  min-width: 190px;
+  padding: 14px 16px;
+  border: 1px solid #dbeafe;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.8);
+  text-align: right;
+}
+
+.income-paycheck-stats span {
+  color: #1d4ed8;
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.income-paycheck-stats small {
+  color: #64748b;
+  font-weight: 800;
+}
+
 .income-total-card {
   min-width: 220px;
   padding: 16px 18px;
@@ -819,6 +880,16 @@ select:focus {
   .tab-button,
   .income-action-row .secondary-button {
     width: 100%;
+  }
+
+  .income-paycheck-banner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .income-paycheck-stats {
+    width: 100%;
+    text-align: left;
   }
 
   .income-total-grid,
