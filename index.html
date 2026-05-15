@@ -141,6 +141,40 @@
             </article>
           </div>
 
+          <div class="income-total-grid future-income-grid" aria-label="Future taxable income totals">
+            <article class="income-total-card income-j1">
+              <span>Future J1 taxable income</span>
+              <strong id="future-taxable-income-j1-total">$0</strong>
+            </article>
+            <article class="income-total-card income-j2">
+              <span>Future J2 taxable income</span>
+              <strong id="future-taxable-income-j2-total">$0</strong>
+            </article>
+            <article class="income-total-card income-total">
+              <span>Future total taxable income</span>
+              <strong id="future-taxable-income-total">$0</strong>
+            </article>
+          </div>
+
+          <section class="income-autofill-card" aria-label="Future paycheck autofill">
+            <div>
+              <h3>Autofill future 2026 paychecks</h3>
+              <p>Enter the baseline taxable amount for each job. The app uses the hardcoded 2026 paycheck schedule and creates future normal-paycheck entries for J1 and J2.</p>
+            </div>
+            <div class="income-baseline-grid">
+              <label>
+                J1 baseline taxable paycheck
+                <input id="income-baseline-j1" type="number" min="0" step="0.01" placeholder="0.00" />
+              </label>
+              <label>
+                J2 baseline taxable paycheck
+                <input id="income-baseline-j2" type="number" min="0" step="0.01" placeholder="0.00" />
+              </label>
+              <button class="secondary-button" type="button" id="autofill-future-paychecks">Autofill future paychecks</button>
+            </div>
+            <p class="helper-text" id="future-paycheck-summary">Uses 24 scheduled 2026 pay dates from Jan 15 through Dec 31.</p>
+          </section>
+
           <form class="income-entry-form" id="income-entry-form">
             <label>
               Date
@@ -192,6 +226,7 @@
                   <th>Taxable income</th>
                   <th>Category</th>
                   <th>Job</th>
+                  <th>Source</th>
                   <th>Action</th>
                 </tr>
               </thead>

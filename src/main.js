@@ -8,11 +8,39 @@ const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
 const NET_UNIT_OVERRIDES_KEY = 'netUnitOverrides';
 const TAXABLE_INCOME_INPUT_KEY = 'taxableIncomeInput';
 const TAXABLE_INCOME_ENTRIES_KEY = 'taxableIncomeEntries';
+const INCOME_BASELINES_KEY = 'incomeBaselines';
 const TAX_WITHHOLDING_RATE = 0.415;
 
 const DEFAULT_GRANTS = [
   { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', firstVestDate: '2025-01-30' },
   { id: crypto.randomUUID(), label: 'Grant B', shares: '800', firstVestDate: '2025-04-30' },
+];
+
+const PAYCHECK_SCHEDULE_2026 = [
+  { paycheckNumber: 1, dateKey: '2026-01-15' },
+  { paycheckNumber: 2, dateKey: '2026-01-30' },
+  { paycheckNumber: 3, dateKey: '2026-02-13' },
+  { paycheckNumber: 4, dateKey: '2026-02-27' },
+  { paycheckNumber: 5, dateKey: '2026-03-13' },
+  { paycheckNumber: 6, dateKey: '2026-03-31' },
+  { paycheckNumber: 7, dateKey: '2026-04-15' },
+  { paycheckNumber: 8, dateKey: '2026-04-30' },
+  { paycheckNumber: 9, dateKey: '2026-05-15' },
+  { paycheckNumber: 10, dateKey: '2026-05-29' },
+  { paycheckNumber: 11, dateKey: '2026-06-15' },
+  { paycheckNumber: 12, dateKey: '2026-06-30' },
+  { paycheckNumber: 13, dateKey: '2026-07-15' },
+  { paycheckNumber: 14, dateKey: '2026-07-31' },
+  { paycheckNumber: 15, dateKey: '2026-08-14' },
+  { paycheckNumber: 16, dateKey: '2026-08-31' },
+  { paycheckNumber: 17, dateKey: '2026-09-15' },
+  { paycheckNumber: 18, dateKey: '2026-09-30' },
+  { paycheckNumber: 19, dateKey: '2026-10-15' },
+  { paycheckNumber: 20, dateKey: '2026-10-30' },
+  { paycheckNumber: 21, dateKey: '2026-11-13' },
+  { paycheckNumber: 22, dateKey: '2026-11-30' },
+  { paycheckNumber: 23, dateKey: '2026-12-15' },
+  { paycheckNumber: 24, dateKey: '2026-12-31' },
 ];
 
 let grants = [];
@@ -23,6 +51,7 @@ let grantGrossOverrides = {};
 let netUnitOverrides = {};
 let taxableIncomeEntries = [];
 let taxableIncomeDraftInput = '';
+let incomeBaselines = { J1: '', J2: '' };
 
 const databaseStatus = document.querySelector('#database-status');
 const grantList = document.querySelector('#grant-list');
@@ -44,6 +73,9 @@ const taxableIncomeJsonOutput = document.querySelector('#taxable-income-json');
 const taxableIncomeTotal = document.querySelector('#taxable-income-total');
 const taxableIncomeJ1Total = document.querySelector('#taxable-income-j1-total');
 const taxableIncomeJ2Total = document.querySelector('#taxable-income-j2-total');
+const futureTaxableIncomeTotal = document.querySelector('#future-taxable-income-total');
+const futureTaxableIncomeJ1Total = document.querySelector('#future-taxable-income-j1-total');
+const futureTaxableIncomeJ2Total = document.querySelector('#future-taxable-income-j2-total');
 const taxableIncomeStatus = document.querySelector('#taxable-income-status');
 const taxableIncomeSummary = document.querySelector('#taxable-income-summary');
 const taxableIncomeTable = document.querySelector('#taxable-income-table');
@@ -55,6 +87,10 @@ const incomeJobInput = document.querySelector('#income-job');
 const importIncomeRowsButton = document.querySelector('#import-income-rows');
 const copyIncomeJsonButton = document.querySelector('#copy-income-json');
 const downloadIncomeJsonButton = document.querySelector('#download-income-json');
+const incomeBaselineJ1Input = document.querySelector('#income-baseline-j1');
+const incomeBaselineJ2Input = document.querySelector('#income-baseline-j2');
+const autofillFuturePaychecksButton = document.querySelector('#autofill-future-paychecks');
+const futurePaycheckSummary = document.querySelector('#future-paycheck-summary');
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -159,6 +195,20 @@ function saveTaxableIncomeEntries() {
   if (!database) return;
   writeMetadata(TAXABLE_INCOME_ENTRIES_KEY, taxableIncomeEntries).catch(() => {
     taxableIncomeStatus.textContent = 'Could not save taxable income entries locally.';
+  });
+}
+
+function saveIncomeBaselines() {
+  if (!database) return;
+  writeMetadata(INCOME_BASELINES_KEY, incomeBaselines).catch(() => {
+    taxableIncomeStatus.textContent = 'Could not save income baselines locally.';
+  });
+}
+
+function saveTaxableIncomeDraftInput() {
+  if (!database) return;
+  writeMetadata(TAXABLE_INCOME_INPUT_KEY, taxableIncomeDraftInput).catch(() => {
+    taxableIncomeStatus.textContent = 'Could not save pasted income rows locally.';
   });
 }
 
@@ -406,13 +456,15 @@ function splitCommaFields(line) {
   return fields;
 }
 
-function createTaxableIncomeEntry({ date, amount, category, job }) {
+function createTaxableIncomeEntry({ date, amount, category, job, source = 'manual', paycheckNumber }) {
   return {
     id: crypto.randomUUID(),
     dateKey: toDateKey(date),
     amount,
     category: normalizeIncomeCategory(category),
     job: normalizeIncomeJob(job),
+    source,
+    paycheckNumber,
   };
 }
 
@@ -430,6 +482,8 @@ function sanitizeSavedIncomeEntries(entries) {
         amount,
         category: normalizeIncomeCategory(entry.category || ''),
         job: normalizeIncomeJob(entry.job || ''),
+        source: entry.source || 'manual',
+        paycheckNumber: entry.paycheckNumber,
       };
     })
     .filter(Boolean)
@@ -472,17 +526,29 @@ function parseTaxableIncomeEntries(input) {
 }
 
 function getIncomeJson() {
-  return JSON.stringify({ taxableIncomeEntries }, null, 2);
+  return JSON.stringify({
+    incomeBaselines,
+    paycheckSchedule2026: PAYCHECK_SCHEDULE_2026,
+    taxableIncomeEntries,
+  }, null, 2);
 }
 
 function getIncomeTotals() {
+  const today = startOfToday();
   return taxableIncomeEntries.reduce((totals, entry) => {
+    const entryDate = parseDate(entry.dateKey);
+    const isFuture = entryDate && entryDate >= today;
     totals.total += entry.amount;
     if (entry.job === 'J1') totals.j1 += entry.amount;
     if (entry.job === 'J2') totals.j2 += entry.amount;
+    if (isFuture) {
+      totals.future.total += entry.amount;
+      if (entry.job === 'J1') totals.future.j1 += entry.amount;
+      if (entry.job === 'J2') totals.future.j2 += entry.amount;
+    }
     totals.byCategory[entry.category] = (totals.byCategory[entry.category] || 0) + entry.amount;
     return totals;
-  }, { total: 0, j1: 0, j2: 0, byCategory: {} });
+  }, { total: 0, j1: 0, j2: 0, future: { total: 0, j1: 0, j2: 0 }, byCategory: {} });
 }
 
 function renderTaxableIncome(message) {
@@ -490,7 +556,11 @@ function renderTaxableIncome(message) {
   taxableIncomeTotal.textContent = formatCurrency(totals.total);
   taxableIncomeJ1Total.textContent = formatCurrency(totals.j1);
   taxableIncomeJ2Total.textContent = formatCurrency(totals.j2);
+  futureTaxableIncomeTotal.textContent = formatCurrency(totals.future.total);
+  futureTaxableIncomeJ1Total.textContent = formatCurrency(totals.future.j1);
+  futureTaxableIncomeJ2Total.textContent = formatCurrency(totals.future.j2);
   taxableIncomeJsonOutput.value = getIncomeJson();
+  futurePaycheckSummary.textContent = getFuturePaycheckSummary();
   taxableIncomeStatus.textContent = message || `${taxableIncomeEntries.length} taxable income entr${taxableIncomeEntries.length === 1 ? 'y' : 'ies'} saved locally as JSON.`;
 
   const summaryCards = Object.entries(totals.byCategory).map(([label, value]) => ({ label, value, type: 'category' }));
@@ -506,7 +576,7 @@ function renderTaxableIncome(message) {
 
   const rows = [...taxableIncomeEntries].sort((a, b) => parseDate(a.dateKey) - parseDate(b.dateKey));
   taxableIncomeTable.innerHTML = rows.length === 0
-    ? '<tr><td colspan="5" class="income-table-empty">No taxable income entries yet.</td></tr>'
+    ? '<tr><td colspan="6" class="income-table-empty">No taxable income entries yet.</td></tr>'
     : rows.map((entry) => {
       const date = parseDate(entry.dateKey);
       return `
@@ -515,6 +585,7 @@ function renderTaxableIncome(message) {
           <td>${formatCurrency(entry.amount)}</td>
           <td>${escapeHtml(entry.category)}</td>
           <td><span class="job-pill job-${toClassToken(entry.job)}">${escapeHtml(entry.job)}</span></td>
+          <td>${formatIncomeSource(entry)}</td>
           <td><button class="text-button" type="button" data-action="remove-income-entry" data-entry-id="${entry.id}">Remove</button></td>
         </tr>
       `;
@@ -552,12 +623,69 @@ function addTaxableIncomeEntry(event) {
   persistTaxableIncomeEntries('Saved taxable income entry locally as JSON.');
 }
 
+function getFuturePaycheckSchedule() {
+  const today = startOfToday();
+  return PAYCHECK_SCHEDULE_2026.filter((paycheck) => parseDate(paycheck.dateKey) >= today);
+}
+
+function getFuturePaycheckSummary() {
+  const futurePaychecks = getFuturePaycheckSchedule();
+  const j1Baseline = parseCurrencyAmount(incomeBaselines.J1);
+  const j2Baseline = parseCurrencyAmount(incomeBaselines.J2);
+  const projectedTotal = futurePaychecks.length * (j1Baseline + j2Baseline);
+  return `${futurePaychecks.length} future 2026 paycheck date${futurePaychecks.length === 1 ? '' : 's'} available for autofill. Baseline projection: ${formatCurrency(projectedTotal)}.`;
+}
+
+function formatIncomeSource(entry) {
+  if (entry.source === 'paycheck-autofill') {
+    return `Autofill #${entry.paycheckNumber || ''}`;
+  }
+  return 'Manual';
+}
+
+function updateIncomeBaseline(job, value) {
+  incomeBaselines = { ...incomeBaselines, [job]: value };
+  renderTaxableIncome('Updated future paycheck baseline.');
+  saveIncomeBaselines();
+}
+
+function autofillFuturePaychecks() {
+  const jobs = [
+    { job: 'J1', amount: parseCurrencyAmount(incomeBaselines.J1) },
+    { job: 'J2', amount: parseCurrencyAmount(incomeBaselines.J2) },
+  ].filter(({ amount }) => amount > 0);
+  const futurePaychecks = getFuturePaycheckSchedule();
+
+  if (jobs.length === 0) {
+    renderTaxableIncome('Enter a J1 and/or J2 baseline amount before autofilling future paychecks.');
+    return;
+  }
+  if (futurePaychecks.length === 0) {
+    renderTaxableIncome('No future 2026 paycheck dates remain in the hardcoded schedule.');
+    return;
+  }
+
+  taxableIncomeEntries = taxableIncomeEntries.filter((entry) => entry.source !== 'paycheck-autofill');
+  const generatedEntries = futurePaychecks.flatMap((paycheck) => jobs.map(({ job, amount }) => createTaxableIncomeEntry({
+    date: parseDate(paycheck.dateKey),
+    amount,
+    category: 'Normal paycheck',
+    job,
+    source: 'paycheck-autofill',
+    paycheckNumber: paycheck.paycheckNumber,
+  })));
+
+  taxableIncomeEntries = [...taxableIncomeEntries, ...generatedEntries];
+  persistTaxableIncomeEntries(`Autofilled ${generatedEntries.length} future paycheck entr${generatedEntries.length === 1 ? 'y' : 'ies'} from the 2026 schedule.`);
+}
+
 function importTaxableIncomeRows() {
   const { entries, errors } = parseTaxableIncomeEntries(taxableIncomeInputField.value);
   if (entries.length > 0) {
     taxableIncomeEntries = [...taxableIncomeEntries, ...entries];
     taxableIncomeDraftInput = '';
     taxableIncomeInputField.value = '';
+    saveTaxableIncomeDraftInput();
   }
 
   const message = errors.length > 0
@@ -573,6 +701,7 @@ function removeTaxableIncomeEntry(id) {
 
 function updateTaxableIncomeDraft(value) {
   taxableIncomeDraftInput = value;
+  saveTaxableIncomeDraftInput();
 }
 
 async function copyIncomeJson() {
@@ -870,11 +999,15 @@ async function initializeApp() {
   const savedNetUnitOverrides = await readMetadata(NET_UNIT_OVERRIDES_KEY);
   const savedTaxableIncomeInput = await readMetadata(TAXABLE_INCOME_INPUT_KEY);
   const savedTaxableIncomeEntries = await readMetadata(TAXABLE_INCOME_ENTRIES_KEY);
+  const savedIncomeBaselines = await readMetadata(INCOME_BASELINES_KEY);
   stockPrice = Number(savedStockPrice) || 0;
   grantGrossOverrides = savedGrantGrossOverrides || {};
   netUnitOverrides = savedNetUnitOverrides || {};
   taxableIncomeDraftInput = savedTaxableIncomeInput || '';
   taxableIncomeInputField.value = taxableIncomeDraftInput;
+  incomeBaselines = { J1: '', J2: '', ...(savedIncomeBaselines || {}) };
+  incomeBaselineJ1Input.value = incomeBaselines.J1 || '';
+  incomeBaselineJ2Input.value = incomeBaselines.J2 || '';
   taxableIncomeEntries = sanitizeSavedIncomeEntries(savedTaxableIncomeEntries || parseTaxableIncomeEntries(taxableIncomeDraftInput).entries);
   stockPriceInput.value = stockPrice || '';
   grants = await readGrants();
@@ -911,6 +1044,9 @@ copyIncomeJsonButton.addEventListener('click', () => {
   });
 });
 downloadIncomeJsonButton.addEventListener('click', downloadIncomeJson);
+incomeBaselineJ1Input.addEventListener('input', (event) => updateIncomeBaseline('J1', event.target.value));
+incomeBaselineJ2Input.addEventListener('input', (event) => updateIncomeBaseline('J2', event.target.value));
+autofillFuturePaychecksButton.addEventListener('click', autofillFuturePaychecks);
 tabButtons.forEach((button) => {
   button.addEventListener('click', () => switchTab(button.dataset.tabTarget));
 });
