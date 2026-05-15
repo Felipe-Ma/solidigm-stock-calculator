@@ -403,9 +403,13 @@ function renderSchedule() {
               step="0.01"
               min="0"
               placeholder="${formatShares(calculatedGrossShares)}"
-              value="${grossOverride || ''}"
+              value="${grossOverride ?? ''}"
             />
           </label>
+          <div class="payout-summary-item">
+            <span>Adjusted gross</span>
+            <strong>${formatShares(effectiveGrossShares)}</strong>
+          </div>
           <div class="payout-summary-item net-item">
             <span>Expected post-tax</span>
             <strong>${formatShares(expectedNetShares)}</strong>
@@ -419,7 +423,7 @@ function renderSchedule() {
               step="0.01"
               min="0"
               placeholder="${formatShares(expectedNetShares)}"
-              value="${netOverride || ''}"
+              value="${netOverride ?? ''}"
             />
           </label>
           <div class="payout-summary-item withholding-item">
