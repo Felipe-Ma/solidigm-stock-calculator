@@ -424,7 +424,7 @@ label {
 
 .grant-vest-line {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) auto auto;
+  grid-template-columns: minmax(140px, 1fr) auto auto auto 125px;
   gap: 10px;
   align-items: center;
   padding: 10px;
@@ -435,6 +435,12 @@ label {
   font-size: 0.88rem;
 }
 
+.remaining-percent {
+  color: #0f766e;
+  font-weight: 900;
+  text-align: right;
+  white-space: nowrap;
+}
 
 .grant-name {
   color: #111827;
@@ -469,6 +475,7 @@ label {
   .payout-summary-item { border-right: 0; border-bottom: 1px solid #e0e7ff; }
   .payout-summary-item:last-child { border-bottom: 0; }
   .grant-vest-line { grid-template-columns: 1fr 1fr; }
+  .remaining-percent { text-align: left; }
 }
 
 @media (max-width: 560px) {

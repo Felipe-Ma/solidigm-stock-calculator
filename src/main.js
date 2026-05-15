@@ -183,10 +183,6 @@ function getAfterTaxValue(value) {
   return value * (1 - TAX_WITHHOLDING_RATE);
 }
 
-function getEffectiveGrossShares(calculatedGrossShares, override) {
-  return override === undefined || override === '' ? calculatedGrossShares : parseShareAmount(override);
-}
-
 function getEffectiveNetShares(calculatedNetShares, override) {
   return override === undefined || override === '' ? calculatedNetShares : parseShareAmount(override);
 }
@@ -219,14 +215,88 @@ function getSchedule() {
       const row = rowsByDate.get(key);
       row.total += sharesPerQuarter;
       row.grants.push({
+        id: grant.id,
         label: grant.label || 'Untitled grant',
+        totalShares: shares,
         amount: sharesPerQuarter,
+        calculatedAmount: sharesPerQuarter,
         vestNumber,
       });
     });
   });
 
   return Array.from(rowsByDate.values()).sort((a, b) => a.date - b.date);
+}
+
+function getAdjustedSchedule(schedule) {
+  const adjustedSchedule = schedule.map((row) => ({
+    ...row,
+    calculatedTotal: row.total,
+    grants: row.grants.map((grant) => ({ ...grant, calculatedAmount: grant.amount })),
+  }));
+  const entriesByGrant = new Map();
+
+  adjustedSchedule.forEach((row, rowIndex) => {
+    const dateKey = toDateKey(row.date);
+    const grossOverride = grossUnitOverrides[dateKey];
+    const hasGrossOverride = grossOverride !== undefined && grossOverride !== '';
+    const rowScale = hasGrossOverride && row.calculatedTotal > 0
+      ? parseShareAmount(grossOverride) / row.calculatedTotal
+      : 1;
+
+    row.grants.forEach((grant, grantIndex) => {
+      const entry = {
+        date: row.date,
+        rowIndex,
+        grantIndex,
+        calculatedAmount: grant.calculatedAmount,
+        amount: hasGrossOverride ? grant.calculatedAmount * rowScale : grant.calculatedAmount,
+        isLocked: hasGrossOverride,
+      };
+
+      if (!entriesByGrant.has(grant.id)) {
+        entriesByGrant.set(grant.id, {
+          totalShares: grant.totalShares,
+          entries: [],
+        });
+      }
+      entriesByGrant.get(grant.id).entries.push(entry);
+    });
+  });
+
+  entriesByGrant.forEach(({ totalShares, entries }) => {
+    const lockedTotal = entries
+      .filter((entry) => entry.isLocked)
+      .reduce((sum, entry) => sum + entry.amount, 0);
+    const unlockedEntries = entries.filter((entry) => !entry.isLocked);
+    const unlockedCalculatedTotal = unlockedEntries.reduce((sum, entry) => sum + entry.calculatedAmount, 0);
+    const sharesToDistribute = Math.max(totalShares - lockedTotal, 0);
+
+    if (unlockedEntries.length > 0 && unlockedCalculatedTotal > 0) {
+      unlockedEntries.forEach((entry) => {
+        entry.amount = sharesToDistribute * (entry.calculatedAmount / unlockedCalculatedTotal);
+      });
+    }
+
+    let vestedToDate = 0;
+    entries
+      .sort((a, b) => a.date - b.date)
+      .forEach((entry) => {
+        vestedToDate += entry.amount;
+        const grant = adjustedSchedule[entry.rowIndex].grants[entry.grantIndex];
+        grant.amount = entry.amount;
+        grant.vestedToDate = vestedToDate;
+        grant.remainingPercentage = totalShares > 0
+          ? Math.max(((totalShares - vestedToDate) / totalShares) * 100, 0)
+          : 0;
+      });
+  });
+
+  adjustedSchedule.forEach((row) => {
+    row.total = row.grants.reduce((sum, grant) => sum + grant.amount, 0);
+  });
+
+  return adjustedSchedule;
 }
 
 function renderGrantInputs() {
@@ -259,20 +329,16 @@ function renderGrantInputs() {
 }
 
 function renderSchedule() {
-  const schedule = getSchedule();
-  const totalGrossShares = schedule.reduce((sum, row) => {
-    const dateKey = toDateKey(row.date);
-    return sum + getEffectiveGrossShares(row.total, grossUnitOverrides[dateKey]);
-  }, 0);
+  const schedule = getAdjustedSchedule(getSchedule());
+  const totalGrossShares = schedule.reduce((sum, row) => sum + row.total, 0);
   const totalNetShares = schedule.reduce((sum, row) => {
     const dateKey = toDateKey(row.date);
-    const grossShares = getEffectiveGrossShares(row.total, grossUnitOverrides[dateKey]);
-    return sum + getEffectiveNetShares(getAfterTaxValue(grossShares), netUnitOverrides[dateKey]);
+    return sum + getEffectiveNetShares(getAfterTaxValue(row.total), netUnitOverrides[dateKey]);
   }, 0);
   const nextRow = schedule.find((row) => row.date >= startOfToday()) || schedule[0];
   const nextNetShares = nextRow
     ? getEffectiveNetShares(
-      getAfterTaxValue(getEffectiveGrossShares(nextRow.total, grossUnitOverrides[toDateKey(nextRow.date)])),
+      getAfterTaxValue(nextRow.total),
       netUnitOverrides[toDateKey(nextRow.date)],
     )
     : 0;
@@ -298,8 +364,8 @@ function renderSchedule() {
     const dateKey = toDateKey(row.date);
     const grossOverride = grossUnitOverrides[dateKey];
     const netOverride = netUnitOverrides[dateKey];
-    const calculatedGrossShares = row.total;
-    const effectiveGrossShares = getEffectiveGrossShares(calculatedGrossShares, grossOverride);
+    const calculatedGrossShares = row.calculatedTotal;
+    const effectiveGrossShares = row.total;
     const expectedNetShares = getAfterTaxValue(effectiveGrossShares);
     const netShares = getEffectiveNetShares(expectedNetShares, netOverride);
     const taxWithheldShares = effectiveGrossShares - netShares;
@@ -387,13 +453,15 @@ function renderSchedule() {
         </div>
 
         <details class="grant-breakdown-details">
-          <summary>View grant sources</summary>
+          <summary>View grant sources & remaining</summary>
           <div class="grant-breakdown">
             ${row.grants.map((grant) => `
               <div class="grant-vest-line">
                 <span class="grant-name">${escapeHtml(grant.label)}</span>
                 <span>Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
-                <span>${formatShares(grant.amount)} calculated gross units</span>
+                <span>${formatShares(grant.calculatedAmount)} calc. gross</span>
+                <span>${formatShares(grant.amount)} adjusted gross</span>
+                <span class="remaining-percent">${formatShares(grant.remainingPercentage)}% remaining</span>
               </div>
             `).join('')}
           </div>
