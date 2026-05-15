@@ -1183,6 +1183,42 @@ select:focus {
   color: #ffffff;
 }
 
+
+.retirement-quick-edit {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.retirement-quick-edit-field {
+  display: grid;
+  gap: 5px;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.retirement-quick-edit-field input {
+  min-height: 36px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.retirement-quick-edit-field.has-override span {
+  color: #c2410c;
+}
+
+.retirement-quick-edit-field.has-override input {
+  border-color: #fdba74;
+  background: #fff7ed;
+}
+
 .paycheck-entry-list {
   display: grid;
   gap: 8px;

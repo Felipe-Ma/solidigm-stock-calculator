@@ -17,6 +17,8 @@ const RETIREMENT_DATA_URL = '/data/401k-contributions.json';
 const RETIREMENT_CONTRIBUTION_CAP = 24500;
 const RETIREMENT_CAP_YEAR = 2026;
 const TAX_WITHHOLDING_RATE = 0.415;
+const RETIREMENT_AUTOFILL_SOURCE = 'retirement-autofill';
+const RETIREMENT_OVERRIDE_SOURCE = 'retirement-override';
 
 const DEFAULT_GRANTS = [
   { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', firstVestDate: '2025-01-30' },
@@ -984,8 +986,11 @@ function formatIncomeSource(entry) {
   if (entry.source === 'paycheck-autofill') {
     return `Autofill #${entry.paycheckNumber || ''}`;
   }
-  if (entry.source === 'retirement-autofill') {
+  if (entry.source === RETIREMENT_AUTOFILL_SOURCE) {
     return `401k autofill #${entry.paycheckNumber || ''}`;
+  }
+  if (entry.source === RETIREMENT_OVERRIDE_SOURCE) {
+    return `401k override #${entry.paycheckNumber || ''}`;
   }
   return 'Manual';
 }
@@ -1114,8 +1119,9 @@ function sanitizeSavedRetirementEntries(entries) {
   return entries
     .map((entry) => {
       const date = parseDate(entry.dateKey || entry.date || '');
+      const hasAmount = entry.amount !== undefined && entry.amount !== null && String(entry.amount).trim() !== '';
       const amount = parseCurrencyAmount(entry.amount);
-      if (!date || !amount || amount < 0) return null;
+      if (!date || !hasAmount || !Number.isFinite(amount) || amount < 0) return null;
       return {
         id: entry.id || crypto.randomUUID(),
         dateKey: toDateKey(date),
@@ -1219,7 +1225,7 @@ function getFutureRetirementSummary() {
 
 function renderFutureRetirementList() {
   const futureEntries = getFutureRetirementEntries();
-  const futureAutofillCount = futureEntries.filter((entry) => entry.source === 'retirement-autofill').length;
+  const futureAutofillCount = futureEntries.filter((entry) => entry.source === RETIREMENT_AUTOFILL_SOURCE).length;
   futureRetirementListSummary.textContent = futureEntries.length === 0
     ? 'No future 401k contribution entries yet.'
     : `${futureEntries.length} future 401k entr${futureEntries.length === 1 ? 'y' : 'ies'} visible here, including ${futureAutofillCount} autofilled entr${futureAutofillCount === 1 ? 'y' : 'ies'}.`;
@@ -1241,12 +1247,43 @@ function renderFutureRetirementList() {
     }).join('');
 }
 
+function getScheduledRetirementAmount(dateKey, job) {
+  return retirementContributionEntries
+    .filter((entry) => entry.dateKey === dateKey && entry.job === job && [RETIREMENT_AUTOFILL_SOURCE, RETIREMENT_OVERRIDE_SOURCE].includes(entry.source))
+    .reduce((sum, entry) => sum + entry.amount, 0);
+}
+
+function hasScheduledRetirementOverride(dateKey, job) {
+  return retirementContributionEntries.some((entry) => entry.dateKey === dateKey && entry.job === job && entry.source === RETIREMENT_OVERRIDE_SOURCE);
+}
+
 function renderRetirementPaycheckScheduleBoxes() {
   retirementPaycheckScheduleGrid.innerHTML = PAYCHECK_SCHEDULE_2026.map((paycheck) => {
     const date = parseDate(paycheck.dateKey);
     const status = getPaycheckDateStatus(paycheck.dateKey);
     const entries = retirementContributionEntries.filter((entry) => entry.dateKey === paycheck.dateKey);
     const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
+
+    const quickEditFields = ['J1', 'J2'].map((job) => {
+      const scheduledAmount = getScheduledRetirementAmount(paycheck.dateKey, job);
+      const hasOverride = hasScheduledRetirementOverride(paycheck.dateKey, job);
+      return `
+        <label class="retirement-quick-edit-field${hasOverride ? ' has-override' : ''}">
+          <span>${job} scheduled 401k${hasOverride ? ' override' : ''}</span>
+          <input
+            data-action="update-retirement-scheduled-contribution"
+            data-date-key="${paycheck.dateKey}"
+            data-job="${job}"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="0.00"
+            value="${hasOverride || scheduledAmount > 0 ? scheduledAmount.toFixed(2) : ''}"
+            aria-label="${job} scheduled 401k contribution for ${formatDate(date)}"
+          />
+        </label>
+      `;
+    }).join('');
 
     return `
       <article class="paycheck-date-card paycheck-${status}">
@@ -1258,6 +1295,9 @@ function renderRetirementPaycheckScheduleBoxes() {
           <strong>${formatCurrency(total)}</strong>
         </div>
         <span class="paycheck-status-pill">${status === 'today' ? 'Today' : status}</span>
+        <div class="retirement-quick-edit" aria-label="Manual scheduled 401k edits">
+          ${quickEditFields}
+        </div>
         <div class="paycheck-entry-list">
           ${entries.length === 0
     ? '<p class="empty-row paycheck-empty-state">No 401k contributions for this date yet.</p>'
@@ -1380,18 +1420,58 @@ function autofillFutureRetirementContributions() {
     return;
   }
 
-  retirementContributionEntries = retirementContributionEntries.filter((entry) => entry.source !== 'retirement-autofill');
-  const generatedEntries = futurePaychecks.flatMap((paycheck) => jobs.map(({ job, amount }) => createRetirementContributionEntry({
-    date: parseDate(paycheck.dateKey),
-    amount,
-    category: 'Normal paycheck',
-    job,
-    source: 'retirement-autofill',
-    paycheckNumber: paycheck.paycheckNumber,
-  })));
+  retirementContributionEntries = retirementContributionEntries.filter((entry) => entry.source !== RETIREMENT_AUTOFILL_SOURCE);
+  const generatedEntries = futurePaychecks.flatMap((paycheck) => jobs
+    .filter(({ job }) => !hasScheduledRetirementOverride(paycheck.dateKey, job))
+    .map(({ job, amount }) => createRetirementContributionEntry({
+      date: parseDate(paycheck.dateKey),
+      amount,
+      category: 'Normal paycheck',
+      job,
+      source: RETIREMENT_AUTOFILL_SOURCE,
+      paycheckNumber: paycheck.paycheckNumber,
+    })));
 
   retirementContributionEntries = [...retirementContributionEntries, ...generatedEntries];
   persistRetirementContributionEntries(`Autofilled ${generatedEntries.length} future 401k contribution entr${generatedEntries.length === 1 ? 'y' : 'ies'} from the 2026 schedule.`);
+}
+
+function updateScheduledRetirementContribution(dateKey, job, value) {
+  const date = parseDate(dateKey);
+  const amount = parseCurrencyAmount(value);
+  const paycheck = PAYCHECK_SCHEDULE_2026.find((scheduledPaycheck) => scheduledPaycheck.dateKey === dateKey);
+  const normalizedJob = normalizeIncomeJob(job);
+
+  if (!date || !paycheck || !['J1', 'J2'].includes(normalizedJob)) {
+    renderRetirementContributions('Choose a valid scheduled paycheck and job before changing a 401k amount.');
+    return;
+  }
+  if (value !== '' && (amount < 0 || !Number.isFinite(amount))) {
+    renderRetirementContributions('Enter a valid non-negative 401k amount for the scheduled paycheck.');
+    return;
+  }
+
+  retirementContributionEntries = retirementContributionEntries.filter((entry) => !(
+    entry.dateKey === dateKey
+    && entry.job === normalizedJob
+    && [RETIREMENT_AUTOFILL_SOURCE, RETIREMENT_OVERRIDE_SOURCE].includes(entry.source)
+  ));
+
+  if (value !== '') {
+    retirementContributionEntries = [
+      ...retirementContributionEntries,
+      createRetirementContributionEntry({
+        date,
+        amount,
+        category: 'Normal paycheck',
+        job: normalizedJob,
+        source: RETIREMENT_OVERRIDE_SOURCE,
+        paycheckNumber: paycheck.paycheckNumber,
+      }),
+    ];
+  }
+
+  persistRetirementContributionEntries(`Updated ${normalizedJob} scheduled 401k contribution for ${formatDate(date)}. Future autofills will keep this manual override.`);
 }
 
 function importRetirementContributionRows() {
@@ -1418,8 +1498,8 @@ function removeRetirementContributionEntry(id) {
 }
 
 function clearAutofillRetirementContributions() {
-  const removedCount = retirementContributionEntries.filter((entry) => entry.source === 'retirement-autofill').length;
-  retirementContributionEntries = retirementContributionEntries.filter((entry) => entry.source !== 'retirement-autofill');
+  const removedCount = retirementContributionEntries.filter((entry) => entry.source === RETIREMENT_AUTOFILL_SOURCE).length;
+  retirementContributionEntries = retirementContributionEntries.filter((entry) => entry.source !== RETIREMENT_AUTOFILL_SOURCE);
   persistRetirementContributionEntries(`Cleared ${removedCount} autofilled 401k entr${removedCount === 1 ? 'y' : 'ies'}.`);
 }
 
@@ -1887,6 +1967,11 @@ document.querySelector('#income-panel').addEventListener('click', (event) => {
     incomeDateInput.value = event.target.dataset.dateKey;
     incomeAmountInput.focus();
     renderTaxableIncome(`Selected ${formatDate(parseDate(event.target.dataset.dateKey))} for the next taxable income entry.`);
+  }
+});
+document.querySelector('#retirement-panel').addEventListener('change', (event) => {
+  if (event.target.dataset.action === 'update-retirement-scheduled-contribution') {
+    updateScheduledRetirementContribution(event.target.dataset.dateKey, event.target.dataset.job, event.target.value);
   }
 });
 document.querySelector('#retirement-panel').addEventListener('click', (event) => {
