@@ -90,9 +90,13 @@
           <div class="panel-heading split-heading">
             <div>
               <h2>Stock grants</h2>
-              <p>Enter the grant's total shares and first vest date. Changes are saved in your browser's local database.</p>
+              <p>Enter the grant's total shares and first vest date. Local changes stay in your browser; use the repo data buttons to save everything into data/app-state.json before you commit and push.</p>
             </div>
-            <button class="secondary-button" type="button" id="add-grant">＋ Add grant</button>
+            <div class="income-action-row">
+              <button class="secondary-button" type="button" id="copy-app-state-json">Copy repo data</button>
+              <button class="secondary-button subtle-button" type="button" id="download-app-state-json">Download repo data</button>
+              <button class="secondary-button" type="button" id="add-grant">＋ Add grant</button>
+            </div>
           </div>
 
           <div class="grant-list" id="grant-list"></div>
@@ -118,7 +122,7 @@
               <span aria-hidden="true">💵</span>
               <div>
                 <h2>Taxable income tracker</h2>
-                <p>Add paychecks, bonuses, RSUs, and other taxable events. Entries are saved locally as JSON and can be copied or downloaded for VS Code.</p>
+                <p>Add paychecks, bonuses, RSUs, and other taxable events. Entries are saved locally and are included in the stock tab's repo data export for data/app-state.json.</p>
               </div>
             </div>
             <div class="income-action-row">
@@ -285,7 +289,7 @@
               <span aria-hidden="true">🏦</span>
               <div>
                 <h2>401k contribution tracker</h2>
-                <p>Add current and future 401k contributions for J1 and J2. Entries are saved locally, can be exported to data/401k-contributions.json for commits, and are checked against the $24,500 yearly cap.</p>
+                <p>Add current and future 401k contributions for J1 and J2. Entries are saved locally, included in the stock tab's repo data export, and checked against the $24,500 yearly cap.</p>
               </div>
             </div>
             <div class="income-action-row">
