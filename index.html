@@ -171,6 +171,8 @@
                 <input id="income-baseline-j2" type="number" min="0" step="0.01" placeholder="0.00" />
               </label>
               <button class="secondary-button" type="button" id="autofill-future-paychecks">Autofill future paychecks</button>
+              <button class="reset-button" type="button" id="clear-autofill-paychecks">Clear autofill</button>
+              <button class="reset-button" type="button" id="reset-future-income">Reset future entries</button>
             </div>
             <p class="helper-text" id="future-paycheck-summary">Uses 24 scheduled 2026 pay dates from Jan 15 through Dec 31.</p>
           </section>
@@ -216,6 +218,17 @@
           </details>
 
           <p class="helper-text" id="taxable-income-status">Add taxable income entries to see totals by J1, J2, and category.</p>
+
+          <section class="future-income-section" aria-label="Future taxable income entries">
+            <div class="future-income-heading">
+              <div>
+                <h3>Future taxable income entries</h3>
+                <p id="future-income-list-summary">No future taxable income entries yet.</p>
+              </div>
+              <button class="reset-button" type="button" id="reset-future-income-inline">Reset future entries</button>
+            </div>
+            <div class="future-income-list" id="future-income-list"></div>
+          </section>
 
           <div class="income-summary-grid" id="taxable-income-summary"></div>
           <div class="income-table-wrap">

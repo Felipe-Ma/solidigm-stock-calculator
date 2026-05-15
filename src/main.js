@@ -91,6 +91,11 @@ const incomeBaselineJ1Input = document.querySelector('#income-baseline-j1');
 const incomeBaselineJ2Input = document.querySelector('#income-baseline-j2');
 const autofillFuturePaychecksButton = document.querySelector('#autofill-future-paychecks');
 const futurePaycheckSummary = document.querySelector('#future-paycheck-summary');
+const futureIncomeList = document.querySelector('#future-income-list');
+const futureIncomeListSummary = document.querySelector('#future-income-list-summary');
+const clearAutofillPaychecksButton = document.querySelector('#clear-autofill-paychecks');
+const resetFutureIncomeButton = document.querySelector('#reset-future-income');
+const resetFutureIncomeInlineButton = document.querySelector('#reset-future-income-inline');
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -533,11 +538,20 @@ function getIncomeJson() {
   }, null, 2);
 }
 
+function isFutureIncomeEntry(entry) {
+  const entryDate = parseDate(entry.dateKey);
+  return entryDate && entryDate >= startOfToday();
+}
+
+function getFutureIncomeEntries() {
+  return taxableIncomeEntries
+    .filter(isFutureIncomeEntry)
+    .sort((a, b) => parseDate(a.dateKey) - parseDate(b.dateKey));
+}
+
 function getIncomeTotals() {
-  const today = startOfToday();
   return taxableIncomeEntries.reduce((totals, entry) => {
-    const entryDate = parseDate(entry.dateKey);
-    const isFuture = entryDate && entryDate >= today;
+    const isFuture = isFutureIncomeEntry(entry);
     totals.total += entry.amount;
     if (entry.job === 'J1') totals.j1 += entry.amount;
     if (entry.job === 'J2') totals.j2 += entry.amount;
@@ -561,6 +575,7 @@ function renderTaxableIncome(message) {
   futureTaxableIncomeJ2Total.textContent = formatCurrency(totals.future.j2);
   taxableIncomeJsonOutput.value = getIncomeJson();
   futurePaycheckSummary.textContent = getFuturePaycheckSummary();
+  renderFutureIncomeList();
   taxableIncomeStatus.textContent = message || `${taxableIncomeEntries.length} taxable income entr${taxableIncomeEntries.length === 1 ? 'y' : 'ies'} saved locally as JSON.`;
 
   const summaryCards = Object.entries(totals.byCategory).map(([label, value]) => ({ label, value, type: 'category' }));
@@ -580,7 +595,7 @@ function renderTaxableIncome(message) {
     : rows.map((entry) => {
       const date = parseDate(entry.dateKey);
       return `
-        <tr class="income-row income-${toClassToken(entry.job)}">
+        <tr class="income-row income-${toClassToken(entry.job)}${isFutureIncomeEntry(entry) ? ' future-income-row' : ''}">
           <td><time datetime="${entry.dateKey}">${formatDate(date)}</time></td>
           <td>${formatCurrency(entry.amount)}</td>
           <td>${escapeHtml(entry.category)}</td>
@@ -588,6 +603,31 @@ function renderTaxableIncome(message) {
           <td>${formatIncomeSource(entry)}</td>
           <td><button class="text-button" type="button" data-action="remove-income-entry" data-entry-id="${entry.id}">Remove</button></td>
         </tr>
+      `;
+    }).join('');
+}
+
+
+function renderFutureIncomeList() {
+  const futureEntries = getFutureIncomeEntries();
+  const futureAutofillCount = futureEntries.filter((entry) => entry.source === 'paycheck-autofill').length;
+  futureIncomeListSummary.textContent = futureEntries.length === 0
+    ? 'No future taxable income entries yet.'
+    : `${futureEntries.length} future entr${futureEntries.length === 1 ? 'y' : 'ies'} visible here, including ${futureAutofillCount} autofilled entr${futureAutofillCount === 1 ? 'y' : 'ies'}.`;
+
+  futureIncomeList.innerHTML = futureEntries.length === 0
+    ? '<p class="empty-row future-income-empty-state">Autofill or manually add future-dated taxable income to see it here.</p>'
+    : futureEntries.map((entry) => {
+      const date = parseDate(entry.dateKey);
+      return `
+        <article class="future-income-card income-${toClassToken(entry.job)}">
+          <div>
+            <time datetime="${entry.dateKey}">${formatDate(date)}</time>
+            <strong>${formatCurrency(entry.amount)}</strong>
+            <span>${escapeHtml(entry.category)} · ${escapeHtml(entry.job)} · ${formatIncomeSource(entry)}</span>
+          </div>
+          <button class="text-button" type="button" data-action="remove-income-entry" data-entry-id="${entry.id}">Remove</button>
+        </article>
       `;
     }).join('');
 }
@@ -697,6 +737,18 @@ function importTaxableIncomeRows() {
 function removeTaxableIncomeEntry(id) {
   taxableIncomeEntries = taxableIncomeEntries.filter((entry) => entry.id !== id);
   persistTaxableIncomeEntries('Removed taxable income entry and updated saved JSON.');
+}
+
+function clearAutofillPaychecks() {
+  const removedCount = taxableIncomeEntries.filter((entry) => entry.source === 'paycheck-autofill').length;
+  taxableIncomeEntries = taxableIncomeEntries.filter((entry) => entry.source !== 'paycheck-autofill');
+  persistTaxableIncomeEntries(`Cleared ${removedCount} autofilled paycheck entr${removedCount === 1 ? 'y' : 'ies'}.`);
+}
+
+function resetFutureIncomeEntries() {
+  const removedCount = getFutureIncomeEntries().length;
+  taxableIncomeEntries = taxableIncomeEntries.filter((entry) => !isFutureIncomeEntry(entry));
+  persistTaxableIncomeEntries(`Reset ${removedCount} future taxable income entr${removedCount === 1 ? 'y' : 'ies'}.`);
 }
 
 function updateTaxableIncomeDraft(value) {
@@ -1047,6 +1099,9 @@ downloadIncomeJsonButton.addEventListener('click', downloadIncomeJson);
 incomeBaselineJ1Input.addEventListener('input', (event) => updateIncomeBaseline('J1', event.target.value));
 incomeBaselineJ2Input.addEventListener('input', (event) => updateIncomeBaseline('J2', event.target.value));
 autofillFuturePaychecksButton.addEventListener('click', autofillFuturePaychecks);
+clearAutofillPaychecksButton.addEventListener('click', clearAutofillPaychecks);
+resetFutureIncomeButton.addEventListener('click', resetFutureIncomeEntries);
+resetFutureIncomeInlineButton.addEventListener('click', resetFutureIncomeEntries);
 tabButtons.forEach((button) => {
   button.addEventListener('click', () => switchTab(button.dataset.tabTarget));
 });
@@ -1058,7 +1113,7 @@ scheduleGrid.addEventListener('change', (event) => {
     updateNetUnitOverride(event.target.dataset.dateKey, event.target.value);
   }
 });
-taxableIncomeTable.addEventListener('click', (event) => {
+document.querySelector('#income-panel').addEventListener('click', (event) => {
   if (event.target.dataset.action === 'remove-income-entry') {
     removeTaxableIncomeEntry(event.target.dataset.entryId);
   }

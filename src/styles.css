@@ -865,12 +865,13 @@ select:focus {
 
 .income-baseline-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: 1fr 1fr auto auto auto;
   gap: 12px;
   align-items: end;
 }
 
-.income-baseline-grid .secondary-button {
+.income-baseline-grid .secondary-button,
+.income-baseline-grid .reset-button {
   min-height: 44px;
   white-space: nowrap;
 }
@@ -880,8 +881,9 @@ select:focus {
     grid-template-columns: 1fr 1fr;
   }
 
-  .income-baseline-grid .secondary-button {
-    grid-column: 1 / -1;
+  .income-baseline-grid .secondary-button,
+  .income-baseline-grid .reset-button {
+    grid-column: span 1;
   }
 }
 
@@ -889,4 +891,111 @@ select:focus {
   .income-baseline-grid {
     grid-template-columns: 1fr;
   }
+
+  .future-income-heading {
+    flex-direction: column;
+  }
+
+  .future-income-heading .reset-button {
+    width: 100%;
+  }
+}
+
+.future-income-section {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 2px solid #bfdbfe;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.future-income-heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.future-income-heading h3 {
+  margin: 0 0 4px;
+  color: #1d4ed8;
+  font-size: 1rem;
+}
+
+.future-income-heading p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.future-income-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.future-income-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.future-income-card.income-j1 {
+  border-color: #d8b4fe;
+  background: #faf5ff;
+}
+
+.future-income-card.income-j2 {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.future-income-card time,
+.future-income-card span {
+  display: block;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.future-income-card strong {
+  display: block;
+  margin: 2px 0;
+  color: #111827;
+  font-size: 1.05rem;
+}
+
+.future-income-empty-state {
+  grid-column: 1 / -1;
+  padding: 14px;
+  border: 1px dashed #93c5fd;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.future-income-row {
+  outline: 2px solid #93c5fd;
+  outline-offset: -2px;
+}
+
+.future-income-row td:first-child::before {
+  content: 'Future';
+  display: inline-flex;
+  margin-right: 8px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.65rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
