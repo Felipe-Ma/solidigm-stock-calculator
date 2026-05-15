@@ -96,6 +96,7 @@ const futureIncomeListSummary = document.querySelector('#future-income-list-summ
 const clearAutofillPaychecksButton = document.querySelector('#clear-autofill-paychecks');
 const resetFutureIncomeButton = document.querySelector('#reset-future-income');
 const resetFutureIncomeInlineButton = document.querySelector('#reset-future-income-inline');
+const resetAllIncomeButton = document.querySelector('#reset-all-income');
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -751,6 +752,12 @@ function resetFutureIncomeEntries() {
   persistTaxableIncomeEntries(`Reset ${removedCount} future taxable income entr${removedCount === 1 ? 'y' : 'ies'}.`);
 }
 
+function resetAllTaxableIncomeEntries() {
+  const removedCount = taxableIncomeEntries.length;
+  taxableIncomeEntries = [];
+  persistTaxableIncomeEntries(`Reset ${removedCount} taxable income entr${removedCount === 1 ? 'y' : 'ies'}, including current and future entries.`);
+}
+
 function updateTaxableIncomeDraft(value) {
   taxableIncomeDraftInput = value;
   saveTaxableIncomeDraftInput();
@@ -1102,6 +1109,7 @@ autofillFuturePaychecksButton.addEventListener('click', autofillFuturePaychecks)
 clearAutofillPaychecksButton.addEventListener('click', clearAutofillPaychecks);
 resetFutureIncomeButton.addEventListener('click', resetFutureIncomeEntries);
 resetFutureIncomeInlineButton.addEventListener('click', resetFutureIncomeEntries);
+resetAllIncomeButton.addEventListener('click', resetAllTaxableIncomeEntries);
 tabButtons.forEach((button) => {
   button.addEventListener('click', () => switchTab(button.dataset.tabTarget));
 });
