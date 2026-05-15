@@ -394,7 +394,8 @@ label {
 
 .running-item strong { color: #111827; }
 
-.gross-override-item input {
+.gross-override-item input,
+.net-override-item input {
   min-height: 36px;
   padding: 6px 8px;
   border-radius: 10px;

@@ -5,6 +5,7 @@ const METADATA_STORE = 'metadata';
 const QUARTERS_IN_LTI_PLAN = 16;
 const STOCK_PRICE_KEY = 'stockPrice';
 const GROSS_UNIT_OVERRIDES_KEY = 'grossUnitOverrides';
+const NET_UNIT_OVERRIDES_KEY = 'netUnitOverrides';
 const TAX_WITHHOLDING_RATE = 0.415;
 
 const DEFAULT_GRANTS = [
@@ -17,6 +18,7 @@ let database;
 let saveTimer;
 let stockPrice = 0;
 let grossUnitOverrides = {};
+let netUnitOverrides = {};
 
 const databaseStatus = document.querySelector('#database-status');
 const grantList = document.querySelector('#grant-list');
@@ -120,6 +122,13 @@ function saveGrossUnitOverrides() {
   });
 }
 
+function saveNetUnitOverrides() {
+  if (!database) return;
+  writeMetadata(NET_UNIT_OVERRIDES_KEY, netUnitOverrides).catch(() => {
+    databaseStatus.textContent = 'Could not save post-tax unit correction locally.';
+  });
+}
+
 function parseDate(value) {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -176,6 +185,10 @@ function getAfterTaxValue(value) {
 
 function getEffectiveGrossShares(calculatedGrossShares, override) {
   return override === undefined || override === '' ? calculatedGrossShares : parseShareAmount(override);
+}
+
+function getEffectiveNetShares(calculatedNetShares, override) {
+  return override === undefined || override === '' ? calculatedNetShares : parseShareAmount(override);
 }
 
 function startOfToday() {
@@ -251,10 +264,17 @@ function renderSchedule() {
     const dateKey = toDateKey(row.date);
     return sum + getEffectiveGrossShares(row.total, grossUnitOverrides[dateKey]);
   }, 0);
-  const totalNetShares = getAfterTaxValue(totalGrossShares);
+  const totalNetShares = schedule.reduce((sum, row) => {
+    const dateKey = toDateKey(row.date);
+    const grossShares = getEffectiveGrossShares(row.total, grossUnitOverrides[dateKey]);
+    return sum + getEffectiveNetShares(getAfterTaxValue(grossShares), netUnitOverrides[dateKey]);
+  }, 0);
   const nextRow = schedule.find((row) => row.date >= startOfToday()) || schedule[0];
   const nextNetShares = nextRow
-    ? getAfterTaxValue(getEffectiveGrossShares(nextRow.total, grossUnitOverrides[toDateKey(nextRow.date)]))
+    ? getEffectiveNetShares(
+      getAfterTaxValue(getEffectiveGrossShares(nextRow.total, grossUnitOverrides[toDateKey(nextRow.date)])),
+      netUnitOverrides[toDateKey(nextRow.date)],
+    )
     : 0;
 
   grandTotal.textContent = formatShares(totalGrossShares);
@@ -276,11 +296,13 @@ function renderSchedule() {
   periodList.className = 'payout-period-list';
   periodList.innerHTML = schedule.map((row, index) => {
     const dateKey = toDateKey(row.date);
-    const override = grossUnitOverrides[dateKey];
+    const grossOverride = grossUnitOverrides[dateKey];
+    const netOverride = netUnitOverrides[dateKey];
     const calculatedGrossShares = row.total;
-    const effectiveGrossShares = getEffectiveGrossShares(calculatedGrossShares, override);
-    const taxWithheldShares = effectiveGrossShares * TAX_WITHHOLDING_RATE;
-    const netShares = getAfterTaxValue(effectiveGrossShares);
+    const effectiveGrossShares = getEffectiveGrossShares(calculatedGrossShares, grossOverride);
+    const expectedNetShares = getAfterTaxValue(effectiveGrossShares);
+    const netShares = getEffectiveNetShares(expectedNetShares, netOverride);
+    const taxWithheldShares = effectiveGrossShares - netShares;
     const grossValue = effectiveGrossShares * stockPrice;
     const withheldValue = taxWithheldShares * stockPrice;
     const netValue = netShares * stockPrice;
@@ -315,15 +337,31 @@ function renderSchedule() {
               step="0.01"
               min="0"
               placeholder="${formatShares(calculatedGrossShares)}"
-              value="${override || ''}"
+              value="${grossOverride || ''}"
+            />
+          </label>
+          <div class="payout-summary-item net-item">
+            <span>Expected post-tax</span>
+            <strong>${formatShares(expectedNetShares)}</strong>
+          </div>
+          <label class="payout-summary-item net-override-item">
+            <span>Correct post-tax units</span>
+            <input
+              data-action="correct-net-payout"
+              data-date-key="${dateKey}"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="${formatShares(expectedNetShares)}"
+              value="${netOverride || ''}"
             />
           </label>
           <div class="payout-summary-item withholding-item">
-            <span>41.5% tax withheld</span>
-            <strong>−${formatShares(taxWithheldShares)}</strong>
+            <span>Units withheld</span>
+            <strong>${formatShares(taxWithheldShares)}</strong>
           </div>
           <div class="payout-summary-item net-item">
-            <span>Post-tax units</span>
+            <span>Final post-tax units</span>
             <strong>${formatShares(netShares)}</strong>
           </div>
           <div class="payout-summary-item">
@@ -331,8 +369,8 @@ function renderSchedule() {
             <strong>${formatCurrency(grossValue)}</strong>
           </div>
           <div class="payout-summary-item withholding-item">
-            <span>Tax value withheld</span>
-            <strong>−${formatCurrency(withheldValue)}</strong>
+            <span>Withheld value</span>
+            <strong>${formatCurrency(withheldValue)}</strong>
           </div>
           <div class="payout-summary-item net-item">
             <span>Net payout</span>
@@ -385,6 +423,18 @@ function updateGrossUnitOverride(dateKey, value) {
   saveGrossUnitOverrides();
 }
 
+function updateNetUnitOverride(dateKey, value) {
+  netUnitOverrides = { ...netUnitOverrides };
+  if (value === '') {
+    delete netUnitOverrides[dateKey];
+  } else {
+    netUnitOverrides[dateKey] = value;
+  }
+
+  renderSchedule();
+  saveNetUnitOverrides();
+}
+
 function addGrant() {
   grants = [
     ...grants,
@@ -417,8 +467,10 @@ async function initializeApp() {
   const hasInitialized = await readMetadata('initialized');
   const savedStockPrice = await readMetadata(STOCK_PRICE_KEY);
   const savedGrossUnitOverrides = await readMetadata(GROSS_UNIT_OVERRIDES_KEY);
+  const savedNetUnitOverrides = await readMetadata(NET_UNIT_OVERRIDES_KEY);
   stockPrice = Number(savedStockPrice) || 0;
   grossUnitOverrides = savedGrossUnitOverrides || {};
+  netUnitOverrides = savedNetUnitOverrides || {};
   stockPriceInput.value = stockPrice || '';
   grants = await readGrants();
 
@@ -444,8 +496,12 @@ addGrantButton.disabled = true;
 addGrantButton.addEventListener('click', addGrant);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
 scheduleGrid.addEventListener('change', (event) => {
-  if (event.target.dataset.action !== 'correct-gross-payout') return;
-  updateGrossUnitOverride(event.target.dataset.dateKey, event.target.value);
+  if (event.target.dataset.action === 'correct-gross-payout') {
+    updateGrossUnitOverride(event.target.dataset.dateKey, event.target.value);
+  }
+  if (event.target.dataset.action === 'correct-net-payout') {
+    updateNetUnitOverride(event.target.dataset.dateKey, event.target.value);
+  }
 });
 initializeApp().catch(() => {
   databaseStatus.textContent = 'Could not open the local database. Refresh and try again.';
