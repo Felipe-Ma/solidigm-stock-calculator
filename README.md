@@ -20,6 +20,8 @@ Then open http://127.0.0.1:5173 in your browser.
 - Automatically creates a 4-year LTI schedule with 16 quarterly vest events for every grant.
 - Divides each grant evenly across those 16 quarters.
 - Lets you enter a stock price to estimate total value, next vest value, each vest value, and running vested value.
+- Lets you set the tax withholding rate (default 41.5%) used for all expected post-tax unit and value estimates.
+- Highlights the next upcoming vest, dims already-vested periods, and warns when gross corrections exceed a grant's total shares.
 - Shows a compact per-quarter vesting table with total shares scheduled, running totals, and percentage remaining after each vest.
 - Tracks current and future taxable income and 401k contributions for J1/J2, stores them as JSON, and compares the 2026 401k total with the $24,500 yearly cap.
 

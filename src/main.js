@@ -4,6 +4,7 @@ const GRANT_STORE = 'grants';
 const METADATA_STORE = 'metadata';
 const QUARTERS_IN_LTI_PLAN = 16;
 const STOCK_PRICE_KEY = 'stockPrice';
+const WITHHOLDING_RATE_KEY = 'taxWithholdingRate';
 const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
 const NET_UNIT_OVERRIDES_KEY = 'netUnitOverrides';
 const TAXABLE_INCOME_INPUT_KEY = 'taxableIncomeInput';
@@ -16,7 +17,7 @@ const APP_STATE_DATA_URL = '/data/app-state.json';
 const RETIREMENT_DATA_URL = '/data/401k-contributions.json';
 const RETIREMENT_CONTRIBUTION_CAP = 24500;
 const RETIREMENT_CAP_YEAR = 2026;
-const TAX_WITHHOLDING_RATE = 0.415;
+const DEFAULT_TAX_WITHHOLDING_RATE = 0.415;
 const RETIREMENT_AUTOFILL_SOURCE = 'retirement-autofill';
 const RETIREMENT_OVERRIDE_SOURCE = 'retirement-override';
 
@@ -56,6 +57,7 @@ let grants = [];
 let database;
 let saveTimer;
 let stockPrice = 0;
+let taxWithholdingRate = DEFAULT_TAX_WITHHOLDING_RATE;
 let grantGrossOverrides = {};
 let netUnitOverrides = {};
 let taxableIncomeEntries = [];
@@ -76,6 +78,8 @@ const heldValue = document.querySelector('#held-value');
 const futureUnits = document.querySelector('#future-units');
 const futureValue = document.querySelector('#future-value');
 const stockPriceInput = document.querySelector('#stock-price');
+const withholdingRateInput = document.querySelector('#withholding-rate');
+const nextVestCaption = document.querySelector('#next-vest-caption');
 const grantTemplate = document.querySelector('#grant-template');
 const addGrantButton = document.querySelector('#add-grant');
 const copyAppStateJsonButton = document.querySelector('#copy-app-state-json');
@@ -236,6 +240,13 @@ function saveStockPrice() {
   });
 }
 
+function saveWithholdingRate() {
+  if (!database) return;
+  writeMetadata(WITHHOLDING_RATE_KEY, taxWithholdingRate).catch(() => {
+    databaseStatus.textContent = 'Could not save withholding rate locally.';
+  });
+}
+
 function saveGrantGrossOverrides() {
   if (!database) return;
   writeMetadata(GRANT_GROSS_OVERRIDES_KEY, grantGrossOverrides).catch(() => {
@@ -361,7 +372,7 @@ function formatCurrency(value) {
 }
 
 function getAfterTaxValue(value) {
-  return value * (1 - TAX_WITHHOLDING_RATE);
+  return value * (1 - taxWithholdingRate);
 }
 
 function parseCurrencyAmount(value) {
@@ -691,6 +702,7 @@ function getAppStateData() {
     version: 1,
     updatedAt: new Date().toISOString(),
     stockPrice,
+    taxWithholdingRate,
     grants: sanitizeSavedGrants(grants),
     grantGrossOverrides,
     netUnitOverrides,
@@ -1595,12 +1607,15 @@ function renderSchedule() {
     .filter((row) => row.date <= today)
     .reduce((sum, row) => sum + row.netTotal, 0);
   const futureNetShares = totalNetShares - heldNetShares;
-  const nextRow = schedule.find((row) => row.date >= today) || schedule[0];
-  const nextNetShares = nextRow?.netTotal || 0;
+  const nextRow = schedule.find((row) => row.date > today) || null;
+  const nextNetShares = nextRow ? nextRow.netTotal : 0;
 
   grandTotal.textContent = formatShares(totalGrossShares);
   totalValue.textContent = formatCurrency(totalNetShares * stockPrice);
-  nextVestValue.textContent = formatCurrency(nextNetShares * stockPrice);
+  nextVestValue.textContent = nextRow ? formatCurrency(nextNetShares * stockPrice) : '—';
+  if (nextVestCaption) {
+    nextVestCaption.textContent = nextRow ? `Next net payout · ${formatDate(nextRow.date)}` : 'Next net payout · none left';
+  }
   heldUnits.textContent = formatShares(heldNetShares);
   heldValue.textContent = formatCurrency(heldNetShares * stockPrice);
   futureUnits.textContent = formatShares(futureNetShares);
@@ -1617,10 +1632,37 @@ function renderSchedule() {
 
   let runningGrossShares = 0;
   let runningNetShares = 0;
+  const nextDateKey = nextRow ? toDateKey(nextRow.date) : null;
+
+  const overAllocatedGrants = [];
+  const grantTotals = new Map();
+  schedule.forEach((row) => {
+    row.grants.forEach((grant) => {
+      if (!grantTotals.has(grant.id)) {
+        grantTotals.set(grant.id, { label: grant.label, totalShares: grant.totalShares, scheduled: 0 });
+      }
+      grantTotals.get(grant.id).scheduled += grant.amount;
+    });
+  });
+  grantTotals.forEach((info) => {
+    if (info.scheduled > info.totalShares + 0.001) {
+      overAllocatedGrants.push(`${info.label} (${formatShares(info.scheduled)} scheduled vs ${formatShares(info.totalShares)} granted)`);
+    }
+  });
+  if (overAllocatedGrants.length > 0) {
+    const warning = document.createElement('p');
+    warning.className = 'schedule-warning';
+    warning.setAttribute('role', 'alert');
+    warning.textContent = `⚠ Gross corrections exceed the grant total for: ${overAllocatedGrants.join(', ')}. Lower the corrections or the schedule will over-count shares.`;
+    scheduleGrid.append(warning);
+  }
+
   const periodList = document.createElement('div');
   periodList.className = 'payout-period-list';
   periodList.innerHTML = schedule.map((row, index) => {
     const dateKey = toDateKey(row.date);
+    const isPast = row.date <= today;
+    const isNext = dateKey === nextDateKey;
     const netOverride = netUnitOverrides[dateKey];
     const calculatedGrossShares = row.calculatedTotal;
     const effectiveGrossShares = row.total;
@@ -1635,11 +1677,13 @@ function renderSchedule() {
     runningNetShares += netShares;
 
     return `
-      <article class="payout-card">
+      <article class="payout-card${isPast ? ' is-past' : ''}${isNext ? ' is-next' : ''}">
         <div class="payout-card-header">
           <div>
             <strong class="payout-period">Period ${index + 1}</strong>
             <time datetime="${dateKey}">${formatDate(row.date)}</time>
+            ${isNext ? '<span class="next-vest-badge">Next vest</span>' : ''}
+            ${isPast ? '<span class="past-vest-badge">Vested</span>' : ''}
           </div>
           <div class="combined-payout">
             <span>${formatShares(netShares)} net units</span>
@@ -1811,6 +1855,7 @@ async function initializeApp() {
   database = await openDatabase();
   const hasInitialized = await readMetadata('initialized');
   const savedStockPrice = await readMetadata(STOCK_PRICE_KEY);
+  const savedWithholdingRate = await readMetadata(WITHHOLDING_RATE_KEY);
   const savedGrantGrossOverrides = await readMetadata(GRANT_GROSS_OVERRIDES_KEY);
   const savedNetUnitOverrides = await readMetadata(NET_UNIT_OVERRIDES_KEY);
   const savedTaxableIncomeInput = await readMetadata(TAXABLE_INCOME_INPUT_KEY);
@@ -1823,6 +1868,8 @@ async function initializeApp() {
   const codeRetirementData = await readRetirementCodeJson();
 
   stockPrice = Number(savedStockPrice ?? codeAppStateData?.stockPrice) || 0;
+  const loadedRate = Number(savedWithholdingRate ?? codeAppStateData?.taxWithholdingRate);
+  taxWithholdingRate = Number.isFinite(loadedRate) && loadedRate >= 0 && loadedRate <= 1 ? loadedRate : DEFAULT_TAX_WITHHOLDING_RATE;
   grantGrossOverrides = {
     ...(codeAppStateData?.grantGrossOverrides || {}),
     ...(savedGrantGrossOverrides || {}),
@@ -1878,6 +1925,7 @@ async function initializeApp() {
   retirementBaselineJ2Input.value = retirementBaselines.J2 || '';
   retirementContributionEntries = [...codeRetirementEntries, ...browserOnlyRetirementEntries];
   stockPriceInput.value = stockPrice || '';
+  withholdingRateInput.value = Math.round(taxWithholdingRate * 10000) / 100;
 
   const repoGrants = sanitizeSavedGrants(codeAppStateData?.grants || []);
   const browserGrants = sanitizeSavedGrants(await readGrants());
@@ -1901,9 +1949,20 @@ async function initializeApp() {
 }
 
 function updateStockPrice(value) {
-  stockPrice = Number(value) || 0;
+  stockPrice = Math.max(Number(value) || 0, 0);
   renderSchedule();
   saveStockPrice();
+}
+
+function updateWithholdingRate(value) {
+  if (String(value).trim() === '') {
+    taxWithholdingRate = DEFAULT_TAX_WITHHOLDING_RATE;
+  } else {
+    const percent = Number(value);
+    taxWithholdingRate = Number.isFinite(percent) ? Math.min(Math.max(percent, 0), 100) / 100 : DEFAULT_TAX_WITHHOLDING_RATE;
+  }
+  renderSchedule();
+  saveWithholdingRate();
 }
 
 addGrantButton.disabled = true;
@@ -1916,6 +1975,7 @@ copyAppStateJsonButton.addEventListener('click', () => {
 downloadAppStateJsonButton.addEventListener('click', downloadAppStateJson);
 resetCorrectionsButton.addEventListener('click', resetManualCorrections);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
+withholdingRateInput.addEventListener('input', (event) => updateWithholdingRate(event.target.value));
 taxableIncomeInputField.addEventListener('input', (event) => updateTaxableIncomeDraft(event.target.value));
 retirementInputField.addEventListener('input', (event) => updateRetirementDraft(event.target.value));
 incomeEntryForm.addEventListener('submit', addTaxableIncomeEntry);
@@ -1950,6 +2010,16 @@ resetFutureRetirementInlineButton.addEventListener('click', resetFutureRetiremen
 resetAllRetirementButton.addEventListener('click', resetAllRetirementContributions);
 tabButtons.forEach((button) => {
   button.addEventListener('click', () => switchTab(button.dataset.tabTarget));
+});
+tabButtons.forEach((button, index) => {
+  button.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    event.preventDefault();
+    const offset = event.key === 'ArrowRight' ? 1 : -1;
+    const nextButton = tabButtons[(index + offset + tabButtons.length) % tabButtons.length];
+    nextButton.focus();
+    switchTab(nextButton.dataset.tabTarget);
+  });
 });
 scheduleGrid.addEventListener('change', (event) => {
   if (event.target.dataset.action === 'correct-grant-gross') {
