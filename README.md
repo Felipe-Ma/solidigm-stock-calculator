@@ -26,9 +26,17 @@ Then open http://127.0.0.1:8787.
 
 ## Deploy
 
+Pushing to `main` triggers a Cloudflare Workers Build, which runs `npx wrangler deploy` and promotes the result to the live Worker. No manual step needed.
+
+To deploy by hand (for example, to ship without committing):
+
 ```bash
 npm run deploy
 ```
+
+Your saved data lives in Workers KV, not in the deploy bundle, so deploying or rolling back never touches it. Use `npx wrangler rollback` to revert to the previous version.
+
+Preview URLs are disabled on purpose: the Access application protects only the production hostname, so a preview URL would serve the app shell publicly.
 
 ## What it does now
 
