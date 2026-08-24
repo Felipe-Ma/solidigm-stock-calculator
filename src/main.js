@@ -4,6 +4,7 @@ const GRANT_STORE = 'grants';
 const METADATA_STORE = 'metadata';
 const QUARTERS_IN_LTI_PLAN = 16;
 const STOCK_PRICE_KEY = 'stockPrice';
+const WITHHOLDING_RATE_KEY = 'taxWithholdingRate';
 const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
 const NET_UNIT_OVERRIDES_KEY = 'netUnitOverrides';
 const TAXABLE_INCOME_INPUT_KEY = 'taxableIncomeInput';
@@ -16,7 +17,9 @@ const APP_STATE_DATA_URL = '/data/app-state.json';
 const RETIREMENT_DATA_URL = '/data/401k-contributions.json';
 const RETIREMENT_CONTRIBUTION_CAP = 24500;
 const RETIREMENT_CAP_YEAR = 2026;
-const TAX_WITHHOLDING_RATE = 0.415;
+const DEFAULT_TAX_WITHHOLDING_RATE = 0.415;
+const RETIREMENT_AUTOFILL_SOURCE = 'retirement-autofill';
+const RETIREMENT_OVERRIDE_SOURCE = 'retirement-override';
 
 const DEFAULT_GRANTS = [
   { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', firstVestDate: '2025-01-30' },
@@ -54,6 +57,7 @@ let grants = [];
 let database;
 let saveTimer;
 let stockPrice = 0;
+let taxWithholdingRate = DEFAULT_TAX_WITHHOLDING_RATE;
 let grantGrossOverrides = {};
 let netUnitOverrides = {};
 let taxableIncomeEntries = [];
@@ -74,6 +78,8 @@ const heldValue = document.querySelector('#held-value');
 const futureUnits = document.querySelector('#future-units');
 const futureValue = document.querySelector('#future-value');
 const stockPriceInput = document.querySelector('#stock-price');
+const withholdingRateInput = document.querySelector('#withholding-rate');
+const nextVestCaption = document.querySelector('#next-vest-caption');
 const grantTemplate = document.querySelector('#grant-template');
 const addGrantButton = document.querySelector('#add-grant');
 const copyAppStateJsonButton = document.querySelector('#copy-app-state-json');
@@ -234,6 +240,13 @@ function saveStockPrice() {
   });
 }
 
+function saveWithholdingRate() {
+  if (!database) return;
+  writeMetadata(WITHHOLDING_RATE_KEY, taxWithholdingRate).catch(() => {
+    databaseStatus.textContent = 'Could not save withholding rate locally.';
+  });
+}
+
 function saveGrantGrossOverrides() {
   if (!database) return;
   writeMetadata(GRANT_GROSS_OVERRIDES_KEY, grantGrossOverrides).catch(() => {
@@ -359,7 +372,7 @@ function formatCurrency(value) {
 }
 
 function getAfterTaxValue(value) {
-  return value * (1 - TAX_WITHHOLDING_RATE);
+  return value * (1 - taxWithholdingRate);
 }
 
 function parseCurrencyAmount(value) {
@@ -689,6 +702,7 @@ function getAppStateData() {
     version: 1,
     updatedAt: new Date().toISOString(),
     stockPrice,
+    taxWithholdingRate,
     grants: sanitizeSavedGrants(grants),
     grantGrossOverrides,
     netUnitOverrides,
@@ -984,8 +998,11 @@ function formatIncomeSource(entry) {
   if (entry.source === 'paycheck-autofill') {
     return `Autofill #${entry.paycheckNumber || ''}`;
   }
-  if (entry.source === 'retirement-autofill') {
+  if (entry.source === RETIREMENT_AUTOFILL_SOURCE) {
     return `401k autofill #${entry.paycheckNumber || ''}`;
+  }
+  if (entry.source === RETIREMENT_OVERRIDE_SOURCE) {
+    return `401k override #${entry.paycheckNumber || ''}`;
   }
   return 'Manual';
 }
@@ -1114,8 +1131,9 @@ function sanitizeSavedRetirementEntries(entries) {
   return entries
     .map((entry) => {
       const date = parseDate(entry.dateKey || entry.date || '');
+      const hasAmount = entry.amount !== undefined && entry.amount !== null && String(entry.amount).trim() !== '';
       const amount = parseCurrencyAmount(entry.amount);
-      if (!date || !amount || amount < 0) return null;
+      if (!date || !hasAmount || !Number.isFinite(amount) || amount < 0) return null;
       return {
         id: entry.id || crypto.randomUUID(),
         dateKey: toDateKey(date),
@@ -1219,7 +1237,7 @@ function getFutureRetirementSummary() {
 
 function renderFutureRetirementList() {
   const futureEntries = getFutureRetirementEntries();
-  const futureAutofillCount = futureEntries.filter((entry) => entry.source === 'retirement-autofill').length;
+  const futureAutofillCount = futureEntries.filter((entry) => entry.source === RETIREMENT_AUTOFILL_SOURCE).length;
   futureRetirementListSummary.textContent = futureEntries.length === 0
     ? 'No future 401k contribution entries yet.'
     : `${futureEntries.length} future 401k entr${futureEntries.length === 1 ? 'y' : 'ies'} visible here, including ${futureAutofillCount} autofilled entr${futureAutofillCount === 1 ? 'y' : 'ies'}.`;
@@ -1241,12 +1259,43 @@ function renderFutureRetirementList() {
     }).join('');
 }
 
+function getScheduledRetirementAmount(dateKey, job) {
+  return retirementContributionEntries
+    .filter((entry) => entry.dateKey === dateKey && entry.job === job && [RETIREMENT_AUTOFILL_SOURCE, RETIREMENT_OVERRIDE_SOURCE].includes(entry.source))
+    .reduce((sum, entry) => sum + entry.amount, 0);
+}
+
+function hasScheduledRetirementOverride(dateKey, job) {
+  return retirementContributionEntries.some((entry) => entry.dateKey === dateKey && entry.job === job && entry.source === RETIREMENT_OVERRIDE_SOURCE);
+}
+
 function renderRetirementPaycheckScheduleBoxes() {
   retirementPaycheckScheduleGrid.innerHTML = PAYCHECK_SCHEDULE_2026.map((paycheck) => {
     const date = parseDate(paycheck.dateKey);
     const status = getPaycheckDateStatus(paycheck.dateKey);
     const entries = retirementContributionEntries.filter((entry) => entry.dateKey === paycheck.dateKey);
     const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
+
+    const quickEditFields = ['J1', 'J2'].map((job) => {
+      const scheduledAmount = getScheduledRetirementAmount(paycheck.dateKey, job);
+      const hasOverride = hasScheduledRetirementOverride(paycheck.dateKey, job);
+      return `
+        <label class="retirement-quick-edit-field${hasOverride ? ' has-override' : ''}">
+          <span>${job} scheduled 401k${hasOverride ? ' override' : ''}</span>
+          <input
+            data-action="update-retirement-scheduled-contribution"
+            data-date-key="${paycheck.dateKey}"
+            data-job="${job}"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="0.00"
+            value="${hasOverride || scheduledAmount > 0 ? scheduledAmount.toFixed(2) : ''}"
+            aria-label="${job} scheduled 401k contribution for ${formatDate(date)}"
+          />
+        </label>
+      `;
+    }).join('');
 
     return `
       <article class="paycheck-date-card paycheck-${status}">
@@ -1258,6 +1307,9 @@ function renderRetirementPaycheckScheduleBoxes() {
           <strong>${formatCurrency(total)}</strong>
         </div>
         <span class="paycheck-status-pill">${status === 'today' ? 'Today' : status}</span>
+        <div class="retirement-quick-edit" aria-label="Manual scheduled 401k edits">
+          ${quickEditFields}
+        </div>
         <div class="paycheck-entry-list">
           ${entries.length === 0
     ? '<p class="empty-row paycheck-empty-state">No 401k contributions for this date yet.</p>'
@@ -1380,18 +1432,58 @@ function autofillFutureRetirementContributions() {
     return;
   }
 
-  retirementContributionEntries = retirementContributionEntries.filter((entry) => entry.source !== 'retirement-autofill');
-  const generatedEntries = futurePaychecks.flatMap((paycheck) => jobs.map(({ job, amount }) => createRetirementContributionEntry({
-    date: parseDate(paycheck.dateKey),
-    amount,
-    category: 'Normal paycheck',
-    job,
-    source: 'retirement-autofill',
-    paycheckNumber: paycheck.paycheckNumber,
-  })));
+  retirementContributionEntries = retirementContributionEntries.filter((entry) => entry.source !== RETIREMENT_AUTOFILL_SOURCE);
+  const generatedEntries = futurePaychecks.flatMap((paycheck) => jobs
+    .filter(({ job }) => !hasScheduledRetirementOverride(paycheck.dateKey, job))
+    .map(({ job, amount }) => createRetirementContributionEntry({
+      date: parseDate(paycheck.dateKey),
+      amount,
+      category: 'Normal paycheck',
+      job,
+      source: RETIREMENT_AUTOFILL_SOURCE,
+      paycheckNumber: paycheck.paycheckNumber,
+    })));
 
   retirementContributionEntries = [...retirementContributionEntries, ...generatedEntries];
   persistRetirementContributionEntries(`Autofilled ${generatedEntries.length} future 401k contribution entr${generatedEntries.length === 1 ? 'y' : 'ies'} from the 2026 schedule.`);
+}
+
+function updateScheduledRetirementContribution(dateKey, job, value) {
+  const date = parseDate(dateKey);
+  const amount = parseCurrencyAmount(value);
+  const paycheck = PAYCHECK_SCHEDULE_2026.find((scheduledPaycheck) => scheduledPaycheck.dateKey === dateKey);
+  const normalizedJob = normalizeIncomeJob(job);
+
+  if (!date || !paycheck || !['J1', 'J2'].includes(normalizedJob)) {
+    renderRetirementContributions('Choose a valid scheduled paycheck and job before changing a 401k amount.');
+    return;
+  }
+  if (value !== '' && (amount < 0 || !Number.isFinite(amount))) {
+    renderRetirementContributions('Enter a valid non-negative 401k amount for the scheduled paycheck.');
+    return;
+  }
+
+  retirementContributionEntries = retirementContributionEntries.filter((entry) => !(
+    entry.dateKey === dateKey
+    && entry.job === normalizedJob
+    && [RETIREMENT_AUTOFILL_SOURCE, RETIREMENT_OVERRIDE_SOURCE].includes(entry.source)
+  ));
+
+  if (value !== '') {
+    retirementContributionEntries = [
+      ...retirementContributionEntries,
+      createRetirementContributionEntry({
+        date,
+        amount,
+        category: 'Normal paycheck',
+        job: normalizedJob,
+        source: RETIREMENT_OVERRIDE_SOURCE,
+        paycheckNumber: paycheck.paycheckNumber,
+      }),
+    ];
+  }
+
+  persistRetirementContributionEntries(`Updated ${normalizedJob} scheduled 401k contribution for ${formatDate(date)}. Future autofills will keep this manual override.`);
 }
 
 function importRetirementContributionRows() {
@@ -1418,8 +1510,8 @@ function removeRetirementContributionEntry(id) {
 }
 
 function clearAutofillRetirementContributions() {
-  const removedCount = retirementContributionEntries.filter((entry) => entry.source === 'retirement-autofill').length;
-  retirementContributionEntries = retirementContributionEntries.filter((entry) => entry.source !== 'retirement-autofill');
+  const removedCount = retirementContributionEntries.filter((entry) => entry.source === RETIREMENT_AUTOFILL_SOURCE).length;
+  retirementContributionEntries = retirementContributionEntries.filter((entry) => entry.source !== RETIREMENT_AUTOFILL_SOURCE);
   persistRetirementContributionEntries(`Cleared ${removedCount} autofilled 401k entr${removedCount === 1 ? 'y' : 'ies'}.`);
 }
 
@@ -1515,12 +1607,15 @@ function renderSchedule() {
     .filter((row) => row.date <= today)
     .reduce((sum, row) => sum + row.netTotal, 0);
   const futureNetShares = totalNetShares - heldNetShares;
-  const nextRow = schedule.find((row) => row.date >= today) || schedule[0];
-  const nextNetShares = nextRow?.netTotal || 0;
+  const nextRow = schedule.find((row) => row.date > today) || null;
+  const nextNetShares = nextRow ? nextRow.netTotal : 0;
 
   grandTotal.textContent = formatShares(totalGrossShares);
   totalValue.textContent = formatCurrency(totalNetShares * stockPrice);
-  nextVestValue.textContent = formatCurrency(nextNetShares * stockPrice);
+  nextVestValue.textContent = nextRow ? formatCurrency(nextNetShares * stockPrice) : '—';
+  if (nextVestCaption) {
+    nextVestCaption.textContent = nextRow ? `Next net payout · ${formatDate(nextRow.date)}` : 'Next net payout · none left';
+  }
   heldUnits.textContent = formatShares(heldNetShares);
   heldValue.textContent = formatCurrency(heldNetShares * stockPrice);
   futureUnits.textContent = formatShares(futureNetShares);
@@ -1537,10 +1632,37 @@ function renderSchedule() {
 
   let runningGrossShares = 0;
   let runningNetShares = 0;
+  const nextDateKey = nextRow ? toDateKey(nextRow.date) : null;
+
+  const overAllocatedGrants = [];
+  const grantTotals = new Map();
+  schedule.forEach((row) => {
+    row.grants.forEach((grant) => {
+      if (!grantTotals.has(grant.id)) {
+        grantTotals.set(grant.id, { label: grant.label, totalShares: grant.totalShares, scheduled: 0 });
+      }
+      grantTotals.get(grant.id).scheduled += grant.amount;
+    });
+  });
+  grantTotals.forEach((info) => {
+    if (info.scheduled > info.totalShares + 0.001) {
+      overAllocatedGrants.push(`${info.label} (${formatShares(info.scheduled)} scheduled vs ${formatShares(info.totalShares)} granted)`);
+    }
+  });
+  if (overAllocatedGrants.length > 0) {
+    const warning = document.createElement('p');
+    warning.className = 'schedule-warning';
+    warning.setAttribute('role', 'alert');
+    warning.textContent = `⚠ Gross corrections exceed the grant total for: ${overAllocatedGrants.join(', ')}. Lower the corrections or the schedule will over-count shares.`;
+    scheduleGrid.append(warning);
+  }
+
   const periodList = document.createElement('div');
   periodList.className = 'payout-period-list';
   periodList.innerHTML = schedule.map((row, index) => {
     const dateKey = toDateKey(row.date);
+    const isPast = row.date <= today;
+    const isNext = dateKey === nextDateKey;
     const netOverride = netUnitOverrides[dateKey];
     const calculatedGrossShares = row.calculatedTotal;
     const effectiveGrossShares = row.total;
@@ -1555,11 +1677,13 @@ function renderSchedule() {
     runningNetShares += netShares;
 
     return `
-      <article class="payout-card">
+      <article class="payout-card${isPast ? ' is-past' : ''}${isNext ? ' is-next' : ''}">
         <div class="payout-card-header">
           <div>
             <strong class="payout-period">Period ${index + 1}</strong>
             <time datetime="${dateKey}">${formatDate(row.date)}</time>
+            ${isNext ? '<span class="next-vest-badge">Next vest</span>' : ''}
+            ${isPast ? '<span class="past-vest-badge">Vested</span>' : ''}
           </div>
           <div class="combined-payout">
             <span>${formatShares(netShares)} net units</span>
@@ -1731,6 +1855,7 @@ async function initializeApp() {
   database = await openDatabase();
   const hasInitialized = await readMetadata('initialized');
   const savedStockPrice = await readMetadata(STOCK_PRICE_KEY);
+  const savedWithholdingRate = await readMetadata(WITHHOLDING_RATE_KEY);
   const savedGrantGrossOverrides = await readMetadata(GRANT_GROSS_OVERRIDES_KEY);
   const savedNetUnitOverrides = await readMetadata(NET_UNIT_OVERRIDES_KEY);
   const savedTaxableIncomeInput = await readMetadata(TAXABLE_INCOME_INPUT_KEY);
@@ -1743,6 +1868,8 @@ async function initializeApp() {
   const codeRetirementData = await readRetirementCodeJson();
 
   stockPrice = Number(savedStockPrice ?? codeAppStateData?.stockPrice) || 0;
+  const loadedRate = Number(savedWithholdingRate ?? codeAppStateData?.taxWithholdingRate);
+  taxWithholdingRate = Number.isFinite(loadedRate) && loadedRate >= 0 && loadedRate <= 1 ? loadedRate : DEFAULT_TAX_WITHHOLDING_RATE;
   grantGrossOverrides = {
     ...(codeAppStateData?.grantGrossOverrides || {}),
     ...(savedGrantGrossOverrides || {}),
@@ -1798,6 +1925,7 @@ async function initializeApp() {
   retirementBaselineJ2Input.value = retirementBaselines.J2 || '';
   retirementContributionEntries = [...codeRetirementEntries, ...browserOnlyRetirementEntries];
   stockPriceInput.value = stockPrice || '';
+  withholdingRateInput.value = Math.round(taxWithholdingRate * 10000) / 100;
 
   const repoGrants = sanitizeSavedGrants(codeAppStateData?.grants || []);
   const browserGrants = sanitizeSavedGrants(await readGrants());
@@ -1821,9 +1949,20 @@ async function initializeApp() {
 }
 
 function updateStockPrice(value) {
-  stockPrice = Number(value) || 0;
+  stockPrice = Math.max(Number(value) || 0, 0);
   renderSchedule();
   saveStockPrice();
+}
+
+function updateWithholdingRate(value) {
+  if (String(value).trim() === '') {
+    taxWithholdingRate = DEFAULT_TAX_WITHHOLDING_RATE;
+  } else {
+    const percent = Number(value);
+    taxWithholdingRate = Number.isFinite(percent) ? Math.min(Math.max(percent, 0), 100) / 100 : DEFAULT_TAX_WITHHOLDING_RATE;
+  }
+  renderSchedule();
+  saveWithholdingRate();
 }
 
 addGrantButton.disabled = true;
@@ -1836,6 +1975,7 @@ copyAppStateJsonButton.addEventListener('click', () => {
 downloadAppStateJsonButton.addEventListener('click', downloadAppStateJson);
 resetCorrectionsButton.addEventListener('click', resetManualCorrections);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
+withholdingRateInput.addEventListener('input', (event) => updateWithholdingRate(event.target.value));
 taxableIncomeInputField.addEventListener('input', (event) => updateTaxableIncomeDraft(event.target.value));
 retirementInputField.addEventListener('input', (event) => updateRetirementDraft(event.target.value));
 incomeEntryForm.addEventListener('submit', addTaxableIncomeEntry);
@@ -1871,6 +2011,16 @@ resetAllRetirementButton.addEventListener('click', resetAllRetirementContributio
 tabButtons.forEach((button) => {
   button.addEventListener('click', () => switchTab(button.dataset.tabTarget));
 });
+tabButtons.forEach((button, index) => {
+  button.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    event.preventDefault();
+    const offset = event.key === 'ArrowRight' ? 1 : -1;
+    const nextButton = tabButtons[(index + offset + tabButtons.length) % tabButtons.length];
+    nextButton.focus();
+    switchTab(nextButton.dataset.tabTarget);
+  });
+});
 scheduleGrid.addEventListener('change', (event) => {
   if (event.target.dataset.action === 'correct-grant-gross') {
     updateGrantGrossOverride(event.target.dataset.grantId, event.target.dataset.vestNumber, event.target.value);
@@ -1887,6 +2037,11 @@ document.querySelector('#income-panel').addEventListener('click', (event) => {
     incomeDateInput.value = event.target.dataset.dateKey;
     incomeAmountInput.focus();
     renderTaxableIncome(`Selected ${formatDate(parseDate(event.target.dataset.dateKey))} for the next taxable income entry.`);
+  }
+});
+document.querySelector('#retirement-panel').addEventListener('change', (event) => {
+  if (event.target.dataset.action === 'update-retirement-scheduled-contribution') {
+    updateScheduledRetirementContribution(event.target.dataset.dateKey, event.target.dataset.job, event.target.value);
   }
 });
 document.querySelector('#retirement-panel').addEventListener('click', (event) => {

@@ -23,7 +23,7 @@
           </div>
           <div class="hero-stat">
             <span id="total-value">$0</span>
-            <small>est. after-tax value</small>
+            <small>est. net value (held + future)</small>
           </div>
         </div>
       </section>
@@ -46,13 +46,22 @@
               <p>No manual quarter-date list needed. Every grant uses the same 4-year plan.</p>
             </div>
           </div>
-          <label class="price-input-card">
-            Stock price
-            <span class="price-input-wrap">
-              <span aria-hidden="true">$</span>
-              <input id="stock-price" type="number" min="0" step="0.01" placeholder="0.00" />
-            </span>
-          </label>
+          <div class="price-input-row">
+            <label class="price-input-card">
+              Stock price
+              <span class="price-input-wrap">
+                <span aria-hidden="true">$</span>
+                <input id="stock-price" type="number" min="0" step="0.01" placeholder="0.00" />
+              </span>
+            </label>
+            <label class="price-input-card">
+              Tax withholding rate
+              <span class="price-input-wrap">
+                <input id="withholding-rate" type="number" min="0" max="100" step="0.1" placeholder="41.5" />
+                <span aria-hidden="true">%</span>
+              </span>
+            </label>
+          </div>
           <div class="plan-metric-grid">
             <div class="plan-metric">
               <strong>4 years</strong>
@@ -64,7 +73,7 @@
             </div>
             <div class="plan-metric">
               <strong id="next-vest-value">$0</strong>
-              <span>Next net payout</span>
+              <span id="next-vest-caption">Next net payout</span>
             </div>
             <div class="plan-metric">
               <strong id="held-units">0</strong>
@@ -347,7 +356,7 @@
           <section class="income-autofill-card" aria-label="Future 401k contribution autofill">
             <div>
               <h3>Autofill future 2026 401k contributions</h3>
-              <p>Enter the expected 401k contribution for each future paycheck. The app creates future normal-paycheck contribution entries for J1 and J2 and keeps the same JSON shape as taxable income entries.</p>
+              <p>Enter the expected 401k contribution for each future paycheck. The app creates future normal-paycheck contribution entries for J1 and J2; manual date-box overrides stay in place when you re-run autofill.</p>
             </div>
             <div class="income-baseline-grid">
               <label>
@@ -369,7 +378,7 @@
             <div class="future-income-heading">
               <div>
                 <h3>2026 401k contribution date boxes</h3>
-                <p>All scheduled paycheck dates are shown here. 401k entries you add or import with matching dates will appear inside the matching box.</p>
+                <p>All scheduled paycheck dates are shown here. Edit a J1 or J2 scheduled amount in a date box to override an autofilled future paycheck, such as keeping May 29 at $200 while a new $500 amount starts on June 15.</p>
               </div>
             </div>
             <div class="paycheck-schedule-grid" id="retirement-paycheck-schedule-grid"></div>
