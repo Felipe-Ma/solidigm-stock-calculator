@@ -176,6 +176,11 @@ input:focus, textarea:focus {
   font-weight: 700;
 }
 
+.cloud-status {
+  margin-top: 4px;
+  color: #0f766e;
+}
+
 .price-input-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

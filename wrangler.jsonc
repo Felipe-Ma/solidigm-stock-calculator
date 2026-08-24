@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "solidigm-stock",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-08-24",
+  "account_id": "8159aeed9c1721040557898196789a67",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "APP_STATE",
+      "id": "5e83a94a97734c96967af5fef9c8885e"
+    }
+  ],
+  // Both values are public identifiers, not secrets: the AUD tag appears in the Access login redirect.
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "lilfil2001.cloudflareaccess.com",
+    "ACCESS_AUD": "b92358487831a7af355fb3eaf93a01262517398187c032b7f0dcd87470b421d3"
+  },
+  "access": {
+    "dev": {
+      "aud": "b92358487831a7af355fb3eaf93a01262517398187c032b7f0dcd87470b421d3",
+      "identity": {
+        "email": "lilfil2001@gmail.com"
+      }
+    }
+  },
+  "observability": {
+    "enabled": true
+  }
+}

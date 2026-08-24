@@ -1,21 +1,39 @@
 # Solidigm Stock Calculator
 
-A simple local web app for mapping stock grants across a standard 4-year LTI vesting plan, plus taxable-income and 401k contribution tracking.
+A web app for mapping stock grants across a standard 4-year LTI vesting plan, plus taxable-income and 401k contribution tracking. It runs as a Cloudflare Worker and stores your data in your own Cloudflare account, so the same numbers follow you to every device.
+
+**Live:** https://solidigm-stock.lilfil2001.workers.dev
+
+## Architecture
+
+| Piece | Location | Purpose |
+| --- | --- | --- |
+| Static site | `public/` | HTML, CSS, and the app itself, served as Workers static assets |
+| API | `worker/index.js` | `GET`/`PUT /api/state`, backed by Workers KV |
+| Storage | Workers KV namespace `APP_STATE` | One JSON blob per signed-in email |
+| Auth | Cloudflare Access | Email one-time PIN; the Worker independently verifies the Access JWT |
+
+IndexedDB is still used, but only as an offline cache. Cloudflare is the source of truth: on load the app pulls from KV, and every edit is debounced and pushed back up.
 
 ## Run locally
 
 ```bash
 npm install
-npm run start
+npm run dev
 ```
 
-Then open http://127.0.0.1:5173 in your browser.
+Then open http://127.0.0.1:8787.
+
+## Deploy
+
+```bash
+npm run deploy
+```
 
 ## What it does now
 
-- Loads pushable shared app data from `data/app-state.json` when the browser has no local copy yet.
-- Stores edits in your browser's local IndexedDB database so they are still there when you come back.
-- Lets you export all current stock, taxable-income, and 401k data back to `data/app-state.json` so another PC can `git pull` the same inputs/results.
+- Syncs all stock, taxable-income, and 401k data through your Cloudflare account so any device you sign in from sees the same values.
+- Falls back to `public/data/app-state.json` for first-run seed data.
 - Lets you add stock grants with a name, total shares, and first vest date.
 - Automatically creates a 4-year LTI schedule with 16 quarterly vest events for every grant.
 - Divides each grant evenly across those 16 quarters.

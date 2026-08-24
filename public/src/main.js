@@ -1,3 +1,5 @@
+import { flushCloudSave, loadCloudState, onCloudStatus, queueCloudSave } from './cloud-store.js';
+
 const DATABASE_NAME = 'solidigm-stock-calculator';
 const DATABASE_VERSION = 2;
 const GRANT_STORE = 'grants';
@@ -66,8 +68,10 @@ let incomeBaselines = { J1: '', J2: '' };
 let retirementContributionEntries = [];
 let retirementDraftInput = '';
 let retirementBaselines = { J1: '', J2: '' };
+let cloudSyncReady = false;
 
 const databaseStatus = document.querySelector('#database-status');
+const cloudStatus = document.querySelector('#cloud-status');
 const grantList = document.querySelector('#grant-list');
 const scheduleGrid = document.querySelector('#schedule-grid');
 const grandTotal = document.querySelector('#grand-total');
@@ -219,87 +223,101 @@ function saveGrantsNow() {
   });
 }
 
+function syncToCloud() {
+  if (!cloudSyncReady) return;
+  queueCloudSave(getAppStateData());
+}
+
 function scheduleSave() {
   clearTimeout(saveTimer);
-  databaseStatus.textContent = 'Saving to local database…';
+  databaseStatus.textContent = 'Saving…';
   saveTimer = setTimeout(() => {
     saveGrantsNow()
       .then(() => {
-        databaseStatus.textContent = `Saved ${grants.length} grant${grants.length === 1 ? '' : 's'} locally.`;
+        databaseStatus.textContent = `Saved ${grants.length} grant${grants.length === 1 ? '' : 's'}.`;
       })
       .catch(() => {
-        databaseStatus.textContent = 'Could not save to the local database.';
+        databaseStatus.textContent = 'Could not cache grants on this device.';
       });
   }, 200);
+  syncToCloud();
 }
 
 function saveStockPrice() {
+  syncToCloud();
   if (!database) return;
   writeMetadata(STOCK_PRICE_KEY, stockPrice).catch(() => {
-    databaseStatus.textContent = 'Could not save stock price locally.';
+    databaseStatus.textContent = 'Could not cache stock price on this device.';
   });
 }
 
 function saveWithholdingRate() {
+  syncToCloud();
   if (!database) return;
   writeMetadata(WITHHOLDING_RATE_KEY, taxWithholdingRate).catch(() => {
-    databaseStatus.textContent = 'Could not save withholding rate locally.';
+    databaseStatus.textContent = 'Could not cache withholding rate on this device.';
   });
 }
 
 function saveGrantGrossOverrides() {
+  syncToCloud();
   if (!database) return;
   writeMetadata(GRANT_GROSS_OVERRIDES_KEY, grantGrossOverrides).catch(() => {
-    databaseStatus.textContent = 'Could not save grant gross correction locally.';
+    databaseStatus.textContent = 'Could not cache grant gross correction on this device.';
   });
 }
 
 function saveNetUnitOverrides() {
+  syncToCloud();
   if (!database) return;
   writeMetadata(NET_UNIT_OVERRIDES_KEY, netUnitOverrides).catch(() => {
-    databaseStatus.textContent = 'Could not save post-tax unit correction locally.';
+    databaseStatus.textContent = 'Could not cache post-tax unit correction on this device.';
   });
 }
 
 function saveTaxableIncomeEntries() {
+  syncToCloud();
   if (!database) return;
   writeMetadata(TAXABLE_INCOME_ENTRIES_KEY, taxableIncomeEntries).catch(() => {
-    taxableIncomeStatus.textContent = 'Could not save taxable income entries locally.';
+    taxableIncomeStatus.textContent = 'Could not cache taxable income entries on this device.';
   });
 }
 
 function saveIncomeBaselines() {
+  syncToCloud();
   if (!database) return;
   writeMetadata(INCOME_BASELINES_KEY, incomeBaselines).catch(() => {
-    taxableIncomeStatus.textContent = 'Could not save income baselines locally.';
+    taxableIncomeStatus.textContent = 'Could not cache income baselines on this device.';
   });
 }
 
 function saveTaxableIncomeDraftInput() {
   if (!database) return;
   writeMetadata(TAXABLE_INCOME_INPUT_KEY, taxableIncomeDraftInput).catch(() => {
-    taxableIncomeStatus.textContent = 'Could not save pasted income rows locally.';
+    taxableIncomeStatus.textContent = 'Could not cache pasted income rows on this device.';
   });
 }
 
 function saveRetirementContributionEntries() {
+  syncToCloud();
   if (!database) return;
   writeMetadata(RETIREMENT_ENTRIES_KEY, retirementContributionEntries).catch(() => {
-    retirementStatus.textContent = 'Could not save 401k contribution entries locally.';
+    retirementStatus.textContent = 'Could not cache 401k contribution entries on this device.';
   });
 }
 
 function saveRetirementBaselines() {
+  syncToCloud();
   if (!database) return;
   writeMetadata(RETIREMENT_BASELINES_KEY, retirementBaselines).catch(() => {
-    retirementStatus.textContent = 'Could not save 401k baselines locally.';
+    retirementStatus.textContent = 'Could not cache 401k baselines on this device.';
   });
 }
 
 function saveRetirementDraftInput() {
   if (!database) return;
   writeMetadata(RETIREMENT_INPUT_KEY, retirementDraftInput).catch(() => {
-    retirementStatus.textContent = 'Could not save pasted 401k rows locally.';
+    retirementStatus.textContent = 'Could not cache pasted 401k rows on this device.';
   });
 }
 
@@ -1853,17 +1871,19 @@ function escapeHtml(value) {
 
 async function initializeApp() {
   database = await openDatabase();
+  const cloud = await loadCloudState();
+  const cloudState = cloud.state;
   const hasInitialized = await readMetadata('initialized');
-  const savedStockPrice = await readMetadata(STOCK_PRICE_KEY);
-  const savedWithholdingRate = await readMetadata(WITHHOLDING_RATE_KEY);
-  const savedGrantGrossOverrides = await readMetadata(GRANT_GROSS_OVERRIDES_KEY);
-  const savedNetUnitOverrides = await readMetadata(NET_UNIT_OVERRIDES_KEY);
+  const savedStockPrice = cloudState ? cloudState.stockPrice : await readMetadata(STOCK_PRICE_KEY);
+  const savedWithholdingRate = cloudState ? cloudState.taxWithholdingRate : await readMetadata(WITHHOLDING_RATE_KEY);
+  const savedGrantGrossOverrides = cloudState ? cloudState.grantGrossOverrides : await readMetadata(GRANT_GROSS_OVERRIDES_KEY);
+  const savedNetUnitOverrides = cloudState ? cloudState.netUnitOverrides : await readMetadata(NET_UNIT_OVERRIDES_KEY);
   const savedTaxableIncomeInput = await readMetadata(TAXABLE_INCOME_INPUT_KEY);
-  const savedTaxableIncomeEntries = await readMetadata(TAXABLE_INCOME_ENTRIES_KEY);
-  const savedIncomeBaselines = await readMetadata(INCOME_BASELINES_KEY);
+  const savedTaxableIncomeEntries = cloudState ? cloudState.taxableIncomeEntries : await readMetadata(TAXABLE_INCOME_ENTRIES_KEY);
+  const savedIncomeBaselines = cloudState ? cloudState.incomeBaselines : await readMetadata(INCOME_BASELINES_KEY);
   const savedRetirementInput = await readMetadata(RETIREMENT_INPUT_KEY);
-  const savedRetirementEntries = await readMetadata(RETIREMENT_ENTRIES_KEY);
-  const savedRetirementBaselines = await readMetadata(RETIREMENT_BASELINES_KEY);
+  const savedRetirementEntries = cloudState ? cloudState.retirementContributionEntries : await readMetadata(RETIREMENT_ENTRIES_KEY);
+  const savedRetirementBaselines = cloudState ? cloudState.retirementBaselines : await readMetadata(RETIREMENT_BASELINES_KEY);
   const codeAppStateData = await readAppStateCodeJson();
   const codeRetirementData = await readRetirementCodeJson();
 
@@ -1928,7 +1948,7 @@ async function initializeApp() {
   withholdingRateInput.value = Math.round(taxWithholdingRate * 10000) / 100;
 
   const repoGrants = sanitizeSavedGrants(codeAppStateData?.grants || []);
-  const browserGrants = sanitizeSavedGrants(await readGrants());
+  const browserGrants = sanitizeSavedGrants(cloudState ? cloudState.grants || [] : await readGrants());
   grants = browserGrants.length > 0 ? browserGrants : repoGrants;
 
   if (!hasInitialized && grants.length === 0) {
@@ -1939,13 +1959,29 @@ async function initializeApp() {
   }
   if (!hasInitialized) await writeMetadata('initialized', true);
 
-  const sourceLabel = browserGrants.length > 0 ? 'local database' : repoGrants.length > 0 ? 'data/app-state.json' : 'starter defaults';
-  databaseStatus.textContent = `Loaded ${grants.length} grant${grants.length === 1 ? '' : 's'} from ${sourceLabel}. Use Copy repo data or Download repo data before committing/pushing shared data.`;
+  const sourceLabel = cloudState
+    ? 'your Cloudflare account'
+    : browserGrants.length > 0
+      ? 'this device'
+      : repoGrants.length > 0
+        ? 'data/app-state.json'
+        : 'starter defaults';
+  databaseStatus.textContent = `Loaded ${grants.length} grant${grants.length === 1 ? '' : 's'} from ${sourceLabel}.`;
   addGrantButton.disabled = false;
   renderGrantInputs();
   renderSchedule();
   renderTaxableIncome();
   renderRetirementContributions();
+
+  if (cloud.available) {
+    cloudSyncReady = true;
+    if (cloudState) {
+      cloudStatus.textContent = `Synced with your Cloudflare account${cloud.email ? ` as ${cloud.email}` : ''}.`;
+    } else {
+      cloudStatus.textContent = 'Uploading this device\u2019s data to your Cloudflare account\u2026';
+      queueCloudSave(getAppStateData());
+    }
+  }
 }
 
 function updateStockPrice(value) {
@@ -2054,8 +2090,16 @@ document.querySelector('#retirement-panel').addEventListener('click', (event) =>
     renderRetirementContributions(`Selected ${formatDate(parseDate(event.target.dataset.dateKey))} for the next 401k contribution entry.`);
   }
 });
+onCloudStatus(({ message }) => {
+  cloudStatus.textContent = message;
+});
+
+window.addEventListener('pagehide', () => {
+  flushCloudSave();
+});
+
 initializeApp().catch(() => {
-  databaseStatus.textContent = 'Could not open the local database. Refresh and try again.';
+  databaseStatus.textContent = 'Could not load your data. Refresh and try again.';
   grants = DEFAULT_GRANTS;
   renderGrantInputs();
   renderSchedule();

@@ -16,6 +16,6 @@ if (-not (Test-Path -Path 'node_modules')) {
     }
 }
 
-$port = if ($env:PORT) { $env:PORT } else { '5173' }
+$port = if ($env:PORT) { $env:PORT } else { '8787' }
 Write-Host "Starting Solidigm Stock Calculator on http://127.0.0.1:$port" -ForegroundColor Green
-npm run start
+npm run dev

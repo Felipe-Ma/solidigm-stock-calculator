@@ -2,6 +2,11 @@
   "name": "solidigm-stock-calculator",
   "private": true,
   "scripts": {
-    "start": "node server.js"
+    "start": "wrangler dev",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.125.0"
   }
 }
