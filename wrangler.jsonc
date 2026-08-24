@@ -15,6 +15,8 @@
       "id": "5e83a94a97734c96967af5fef9c8885e"
     }
   ],
+  // Preview URLs would not be covered by the Access app, which protects only the production hostname.
+  "preview_urls": false,
   // Both values are public identifiers, not secrets: the AUD tag appears in the Access login redirect.
   "vars": {
     "ACCESS_TEAM_DOMAIN": "lilfil2001.cloudflareaccess.com",
