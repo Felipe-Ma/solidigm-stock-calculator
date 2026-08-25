@@ -41,28 +41,29 @@ Preview URLs are disabled on purpose: the Access application protects only the p
 ## What it does now
 
 - Syncs all stock, taxable-income, and 401k data through your Cloudflare account so any device you sign in from sees the same values.
-- Falls back to `public/data/app-state.json` for first-run seed data.
 - Lets you add stock grants with a name, total shares, and first vest date.
-- Automatically creates a 4-year LTI schedule with 16 quarterly vest events for every grant.
-- Divides each grant evenly across those 16 quarters.
-- Lets you enter a stock price to estimate total value, next vest value, each vest value, and running vested value.
-- Lets you set the tax withholding rate (default 41.5%) used for all expected post-tax unit and value estimates.
-- Highlights the next upcoming vest, dims already-vested periods, and warns when gross corrections exceed a grant's total shares.
-- Shows a compact per-quarter vesting table with total shares scheduled, running totals, and percentage remaining after each vest.
-- Tracks current and future taxable income and 401k contributions for J1/J2, stores them as JSON, and compares the 2026 401k total with the $24,500 yearly cap.
+- Automatically creates a 4-year LTI schedule with 16 quarterly vest events for every grant, split evenly.
+- Shows upcoming vests as **gross units only**. The app never estimates tax.
+- Lets you record what actually happened at each vest — net units received and the share price that day — and derives units withheld, value at vest, and what those units are worth today.
+- Rolls those actuals up into net units held, total received at vest, and remaining gross units.
+- Warns when per-grant gross corrections exceed a grant's total shares.
+- Tracks current and future taxable income and 401k contributions for J1/J2, and compares the 2026 401k total against the $24,500 yearly cap.
 
-## Pushable data workflow
+## How vesting is recorded
 
-Browsers cannot directly write into your git working tree, so the app keeps fast local saves in IndexedDB and gives you a manual repo JSON export for commits.
+Each period in the schedule is one of:
 
-1. Run the app and enter/update grants, stock price, taxable-income entries, 401k entries, baselines, or vest corrections.
-2. On the **Stock calculator** tab, click **Download repo data** or **Copy repo data**.
-3. Replace `data/app-state.json` with that exported JSON.
-4. Commit and push `data/app-state.json`.
-5. On another PC, run `git pull` and open the app. If that browser does not already have local saved data for this app, it will load the shared data from `data/app-state.json` and show the same inputs/results.
+| State | Meaning |
+| --- | --- |
+| Upcoming | In the future. Shows projected gross units and their value at today's price. |
+| Next | The next period due. |
+| Awaiting actuals | The date has passed but nothing was recorded yet. |
+| Recorded | You entered net units received and the price at vest. |
 
-If a browser already has local saved data, those local values are preserved and merged with repo entries where possible. To make that PC use only freshly pulled repo data, clear the site data/IndexedDB for this local app in the browser and reload.
+Only recorded periods count toward "net units held" — everything else is still counted as remaining gross. That keeps projections honest instead of guessing a withholding rate.
 
-## Legacy 401k JSON workflow
+Earlier versions estimated post-tax units with a fixed 41.5% rate. Any saved post-tax corrections from that model are migrated automatically into recorded net units on first load.
 
-The app still reads `data/401k-contributions.json` as a fallback for older exports, but new shared data should go through `data/app-state.json` so stock grants, taxable income, and 401k data travel together.
+## Seed data
+
+`public/data/app-state.json` and `public/data/401k-contributions.json` are first-run placeholders only. Once your Cloudflare account has data, those files are ignored. Do not put real figures in them — this repository is public.

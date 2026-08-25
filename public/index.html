@@ -3,229 +3,174 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
     <title>Solidigm Stock Calculator</title>
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <section class="hero-card">
-        <div>
-          <p class="eyebrow">✨ Solidigm stock calculator</p>
-          <h1>Track 4-year LTI grants automatically.</h1>
-          <p class="hero-copy">
-            Add each stock grant once. The app saves your grants locally and builds the 16-quarter vesting schedule for a standard 4-year LTI plan.
-          </p>
-        </div>
-        <div class="hero-stats">
-          <div class="hero-stat">
-            <span id="grand-total">0</span>
-            <small>gross units scheduled</small>
-          </div>
-          <div class="hero-stat">
-            <span id="total-value">$0</span>
-            <small>est. net value (held + future)</small>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">◆</span>
+          <div class="brand-text">
+            <strong>Solidigm Stock</strong>
+            <span>Equity &amp; compensation tracker</span>
           </div>
         </div>
-      </section>
 
-      <section class="tab-shell" aria-label="Calculator sections">
-        <div class="tab-list" role="tablist" aria-label="Calculator tabs">
-          <button class="tab-button is-active" type="button" id="stock-tab" role="tab" aria-selected="true" aria-controls="stock-panel" data-tab-target="stock-panel">Stock calculator</button>
-          <button class="tab-button" type="button" id="income-tab" role="tab" aria-selected="false" aria-controls="income-panel" data-tab-target="income-panel">Taxable income</button>
-          <button class="tab-button" type="button" id="retirement-tab" role="tab" aria-selected="false" aria-controls="retirement-panel" data-tab-target="retirement-panel">401k contributions</button>
+        <div class="topbar-tools">
+          <label class="field field-price">
+            <span class="field-label">Stock price</span>
+            <span class="input-affix">
+              <span class="affix" aria-hidden="true">$</span>
+              <input id="stock-price" type="number" min="0" step="0.01" placeholder="0.00" />
+            </span>
+          </label>
+          <div class="sync-block">
+            <p class="sync-line" id="cloud-status">Connecting to cloud sync…</p>
+            <p class="sync-line sync-line-muted" id="database-status">Loading…</p>
+          </div>
         </div>
-      </section>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <nav class="tab-list" role="tablist" aria-label="Sections">
+        <button class="tab-button is-active" type="button" id="stock-tab" role="tab" aria-selected="true" aria-controls="stock-panel" data-tab-target="stock-panel">Vesting</button>
+        <button class="tab-button" type="button" id="income-tab" role="tab" aria-selected="false" aria-controls="income-panel" data-tab-target="income-panel">Taxable income</button>
+        <button class="tab-button" type="button" id="retirement-tab" role="tab" aria-selected="false" aria-controls="retirement-panel" data-tab-target="retirement-panel">401k</button>
+      </nav>
 
       <div class="tab-panel is-active" id="stock-panel" role="tabpanel" aria-labelledby="stock-tab">
-      <section class="workspace">
-        <div class="panel plan-panel">
-          <div class="panel-heading">
-            <span aria-hidden="true">📅</span>
-            <div>
-              <h2>Automatic LTI schedule</h2>
-              <p>No manual quarter-date list needed. Every grant uses the same 4-year plan.</p>
-            </div>
-          </div>
-          <div class="price-input-row">
-            <label class="price-input-card">
-              Stock price
-              <span class="price-input-wrap">
-                <span aria-hidden="true">$</span>
-                <input id="stock-price" type="number" min="0" step="0.01" placeholder="0.00" />
-              </span>
-            </label>
-            <label class="price-input-card">
-              Tax withholding rate
-              <span class="price-input-wrap">
-                <input id="withholding-rate" type="number" min="0" max="100" step="0.1" placeholder="41.5" />
-                <span aria-hidden="true">%</span>
-              </span>
-            </label>
-          </div>
-          <div class="plan-metric-grid">
-            <div class="plan-metric">
-              <strong>4 years</strong>
-              <span>Plan length</span>
-            </div>
-            <div class="plan-metric">
-              <strong>16</strong>
-              <span>Quarterly vests</span>
-            </div>
-            <div class="plan-metric">
-              <strong id="next-vest-value">$0</strong>
-              <span id="next-vest-caption">Next net payout</span>
-            </div>
-            <div class="plan-metric">
-              <strong id="held-units">0</strong>
-              <span>Net units held</span>
-            </div>
-            <div class="plan-metric">
-              <strong id="held-value">$0</strong>
-              <span>Held value today</span>
-            </div>
-            <div class="plan-metric">
-              <strong id="future-units">0</strong>
-              <span>Future net units</span>
-            </div>
-            <div class="plan-metric">
-              <strong id="future-value">$0</strong>
-              <span>Future value today</span>
-            </div>
-          </div>
-          <p class="helper-text" id="database-status">Loading…</p>
-          <p class="helper-text cloud-status" id="cloud-status">Connecting to cloud sync…</p>
-        </div>
+        <section class="stat-strip" aria-label="Portfolio summary">
+          <article class="stat stat-accent">
+            <span class="stat-label">Value today</span>
+            <strong class="stat-value" id="total-value">$0</strong>
+            <small class="stat-note">Held units + remaining gross</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Net units held</span>
+            <strong class="stat-value" id="held-units">0</strong>
+            <small class="stat-note" id="held-value">$0 at today's price</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Received at vest</span>
+            <strong class="stat-value" id="realized-value">$0</strong>
+            <small class="stat-note">Actual value when it landed</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Remaining gross units</span>
+            <strong class="stat-value" id="future-units">0</strong>
+            <small class="stat-note" id="future-value">$0 at today's price</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label" id="next-vest-caption">Next vest</span>
+            <strong class="stat-value" id="next-vest-value">—</strong>
+            <small class="stat-note">Gross, before tax</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Total granted</span>
+            <strong class="stat-value" id="grand-total">0</strong>
+            <small class="stat-note">Gross units scheduled</small>
+          </article>
+        </section>
 
-        <div class="panel grants-panel">
-          <div class="panel-heading split-heading">
-            <div>
-              <h2>Stock grants</h2>
-              <p>Enter the grant's total shares and first vest date. Changes save to your Cloudflare account automatically and follow you to every device you sign in from.</p>
+        <section class="card" aria-label="Stock grants">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>Grants</h2>
+              <p>Each grant vests in 16 equal quarterly instalments over 4 years.</p>
             </div>
-            <div class="income-action-row">
-              <button class="secondary-button" type="button" id="copy-app-state-json">Copy repo data</button>
-              <button class="secondary-button subtle-button" type="button" id="download-app-state-json">Download repo data</button>
-              <button class="secondary-button" type="button" id="add-grant">＋ Add grant</button>
-            </div>
+            <button class="btn btn-primary" type="button" id="add-grant">Add grant</button>
           </div>
-
           <div class="grant-list" id="grant-list"></div>
-        </div>
-      </section>
+        </section>
 
-      <section class="panel schedule-panel">
-        <div class="panel-heading split-heading">
-          <div>
-            <h2>Grant layout</h2>
-            <p>A no-scroll payout view that combines grants by period, keeps gross corrections in each grant detail, redistributes corrected grant units across the 4-year schedule, and keeps one post-tax correction per payout.</p>
+        <section class="card" aria-label="Vesting schedule">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>Vesting schedule</h2>
+              <p>Upcoming periods show gross units only. When a vest lands, record what you actually received.</p>
+            </div>
+            <button class="btn btn-ghost" type="button" id="reset-corrections">Clear all actuals</button>
           </div>
-          <button class="reset-button" type="button" id="reset-corrections">Reset corrections</button>
-        </div>
-        <div class="schedule-grid" id="schedule-grid"></div>
-      </section>
+          <div class="schedule-grid" id="schedule-grid"></div>
+        </section>
+
+        <details class="card card-details">
+          <summary>Backup &amp; export</summary>
+          <p class="muted">Your data lives in your Cloudflare account and syncs automatically. These are only for keeping an offline copy.</p>
+          <div class="btn-row">
+            <button class="btn btn-ghost" type="button" id="copy-app-state-json">Copy backup JSON</button>
+            <button class="btn btn-ghost" type="button" id="download-app-state-json">Download backup</button>
+          </div>
+        </details>
       </div>
 
       <div class="tab-panel" id="income-panel" role="tabpanel" aria-labelledby="income-tab" hidden>
-        <section class="panel income-panel">
-          <div class="panel-heading split-heading">
-            <div>
-              <span aria-hidden="true">💵</span>
-              <div>
-                <h2>Taxable income tracker</h2>
-                <p>Add paychecks, bonuses, RSUs, and other taxable events. Entries are saved locally and are included in the stock tab's repo data export for data/app-state.json.</p>
-              </div>
-            </div>
-            <div class="income-action-row">
-              <button class="secondary-button" type="button" id="copy-income-json">Copy JSON</button>
-              <button class="secondary-button subtle-button" type="button" id="download-income-json">Download JSON</button>
-              <button class="reset-button" type="button" id="reset-all-income">Reset all entries</button>
+        <section class="stat-strip" aria-label="Taxable income totals">
+          <article class="stat stat-accent">
+            <span class="stat-label">Total taxable income</span>
+            <strong class="stat-value" id="taxable-income-total">$0</strong>
+            <small class="stat-note">All entries</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">J1</span>
+            <strong class="stat-value" id="taxable-income-j1-total">$0</strong>
+            <small class="stat-note">Job 1</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">J2</span>
+            <strong class="stat-value" id="taxable-income-j2-total">$0</strong>
+            <small class="stat-note">Job 2</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Future total</span>
+            <strong class="stat-value" id="future-taxable-income-total">$0</strong>
+            <small class="stat-note">Scheduled ahead</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Future J1</span>
+            <strong class="stat-value" id="future-taxable-income-j1-total">$0</strong>
+            <small class="stat-note">Projected</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Future J2</span>
+            <strong class="stat-value" id="future-taxable-income-j2-total">$0</strong>
+            <small class="stat-note">Projected</small>
+          </article>
+        </section>
+
+        <section class="card progress-card" aria-label="Paycheck progress">
+          <div class="progress-main">
+            <span class="card-eyebrow">Paycheck progress</span>
+            <strong id="current-paycheck-title">Paycheck — of 24</strong>
+            <p class="muted" id="current-paycheck-detail">Using the 2026 paycheck schedule.</p>
+          </div>
+          <div class="progress-side">
+            <strong id="current-paycheck-remaining">0 left</strong>
+            <small id="current-paycheck-date">Next date —</small>
+          </div>
+        </section>
+
+        <section class="card" aria-label="Add taxable income">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>Add an entry</h2>
+              <p>Paychecks, bonuses, RSUs, and other taxable events.</p>
             </div>
           </div>
-
-          <section class="income-paycheck-banner" aria-label="Current paycheck progress">
-            <div>
-              <span class="income-paycheck-eyebrow">Paycheck progress</span>
-              <strong id="current-paycheck-title">Paycheck — of 24</strong>
-              <p id="current-paycheck-detail">Using the 2026 paycheck schedule.</p>
-            </div>
-            <div class="income-paycheck-stats">
-              <span id="current-paycheck-remaining">0 left</span>
-              <small id="current-paycheck-date">Next date —</small>
-            </div>
-          </section>
-
-          <div class="income-total-grid" aria-label="Taxable income totals">
-            <article class="income-total-card income-j1">
-              <span>J1 taxable income</span>
-              <strong id="taxable-income-j1-total">$0</strong>
-            </article>
-            <article class="income-total-card income-j2">
-              <span>J2 taxable income</span>
-              <strong id="taxable-income-j2-total">$0</strong>
-            </article>
-            <article class="income-total-card income-total">
-              <span>Total taxable income</span>
-              <strong id="taxable-income-total">$0</strong>
-            </article>
-          </div>
-
-          <div class="income-total-grid future-income-grid" aria-label="Future taxable income totals">
-            <article class="income-total-card income-j1">
-              <span>Future J1 taxable income</span>
-              <strong id="future-taxable-income-j1-total">$0</strong>
-            </article>
-            <article class="income-total-card income-j2">
-              <span>Future J2 taxable income</span>
-              <strong id="future-taxable-income-j2-total">$0</strong>
-            </article>
-            <article class="income-total-card income-total">
-              <span>Future total taxable income</span>
-              <strong id="future-taxable-income-total">$0</strong>
-            </article>
-          </div>
-
-          <section class="income-autofill-card" aria-label="Future paycheck autofill">
-            <div>
-              <h3>Autofill future 2026 paychecks</h3>
-              <p>Enter the baseline taxable amount for each job. The app uses the hardcoded 2026 paycheck schedule and creates future normal-paycheck entries for J1 and J2.</p>
-            </div>
-            <div class="income-baseline-grid">
-              <label>
-                J1 baseline taxable paycheck
-                <input id="income-baseline-j1" type="number" min="0" step="0.01" placeholder="0.00" />
-              </label>
-              <label>
-                J2 baseline taxable paycheck
-                <input id="income-baseline-j2" type="number" min="0" step="0.01" placeholder="0.00" />
-              </label>
-              <button class="secondary-button" type="button" id="autofill-future-paychecks">Autofill future paychecks</button>
-              <button class="reset-button" type="button" id="clear-autofill-paychecks">Clear autofill</button>
-              <button class="reset-button" type="button" id="reset-future-income">Reset future entries</button>
-            </div>
-            <p class="helper-text" id="future-paycheck-summary">Uses 24 scheduled 2026 pay dates from Jan 15 through Dec 31.</p>
-          </section>
-
-          <section class="paycheck-schedule-section" aria-label="2026 paycheck date boxes">
-            <div class="future-income-heading">
-              <div>
-                <h3>2026 paycheck date boxes</h3>
-                <p>All scheduled paycheck dates are shown here with paycheck totals and a running taxable-income sum through each date, so you can spot months where contributions may need to go up or down.</p>
-              </div>
-            </div>
-            <div class="paycheck-schedule-grid" id="paycheck-schedule-grid"></div>
-          </section>
-
-          <form class="income-entry-form" id="income-entry-form">
-            <label>
-              Date
+          <form class="entry-form" id="income-entry-form">
+            <label class="field">
+              <span class="field-label">Date</span>
               <input id="income-date" type="date" required />
             </label>
-            <label>
-              Taxable income
+            <label class="field">
+              <span class="field-label">Taxable income</span>
               <input id="income-amount" type="number" min="0" step="0.01" placeholder="3500.00" required />
             </label>
-            <label>
-              Category
+            <label class="field">
+              <span class="field-label">Category</span>
               <select id="income-category">
                 <option value="Normal paycheck">Normal paycheck</option>
                 <option value="Bonus">Bonus</option>
@@ -233,44 +178,75 @@
                 <option value="RSU">RSU</option>
               </select>
             </label>
-            <label>
-              Job
+            <label class="field">
+              <span class="field-label">Job</span>
               <select id="income-job">
                 <option value="J1">J1</option>
                 <option value="J2">J2</option>
               </select>
             </label>
-            <button class="secondary-button" type="submit">＋ Save entry</button>
+            <button class="btn btn-primary" type="submit">Save entry</button>
           </form>
+          <p class="status-line" id="taxable-income-status">Add taxable income entries to see totals by J1, J2, and category.</p>
+        </section>
 
-          <details class="income-import-details">
-            <summary>Bulk paste comma-separated entries</summary>
-            <label class="income-input-label">
-              One row per taxable event: date, taxable income, category, job
-              <textarea
-                id="taxable-income-input"
-                placeholder="2026-01-15, 3500, normal paycheck, j1&#10;2026-02-01, 12000, bonus, j1&#10;2026-02-15, 4200, normal paycheck + rcu, j2&#10;2026-03-01, 8000, rsu, j1"
-              ></textarea>
-            </label>
-            <button class="secondary-button" type="button" id="import-income-rows">Import pasted rows</button>
-          </details>
-
-          <p class="helper-text" id="taxable-income-status">Add taxable income entries to see totals by J1, J2, and category.</p>
-
-          <section class="future-income-section" aria-label="Future taxable income entries">
-            <div class="future-income-heading">
-              <div>
-                <h3>Future taxable income entries</h3>
-                <p id="future-income-list-summary">No future taxable income entries yet.</p>
-              </div>
-              <button class="reset-button" type="button" id="reset-future-income-inline">Reset future entries</button>
+        <section class="card" aria-label="Autofill future paychecks">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>Autofill future paychecks</h2>
+              <p>Set a baseline per job and fill every remaining 2026 pay date.</p>
             </div>
-            <div class="future-income-list" id="future-income-list"></div>
-          </section>
+          </div>
+          <div class="baseline-row">
+            <label class="field">
+              <span class="field-label">J1 baseline</span>
+              <input id="income-baseline-j1" type="number" min="0" step="0.01" placeholder="0.00" />
+            </label>
+            <label class="field">
+              <span class="field-label">J2 baseline</span>
+              <input id="income-baseline-j2" type="number" min="0" step="0.01" placeholder="0.00" />
+            </label>
+            <div class="btn-row">
+              <button class="btn btn-primary" type="button" id="autofill-future-paychecks">Autofill</button>
+              <button class="btn btn-ghost" type="button" id="clear-autofill-paychecks">Clear autofill</button>
+              <button class="btn btn-ghost" type="button" id="reset-future-income">Reset future</button>
+            </div>
+          </div>
+          <p class="status-line" id="future-paycheck-summary">Uses 24 scheduled 2026 pay dates from Jan 15 through Dec 31.</p>
+        </section>
 
-          <div class="income-summary-grid" id="taxable-income-summary"></div>
-          <div class="income-table-wrap">
-            <table class="income-table">
+        <section class="card" aria-label="2026 paycheck dates">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>2026 pay dates</h2>
+              <p>Per-date totals with a running taxable-income sum.</p>
+            </div>
+          </div>
+          <div class="date-grid" id="paycheck-schedule-grid"></div>
+        </section>
+
+        <section class="card" aria-label="Future taxable income entries">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>Future entries</h2>
+              <p id="future-income-list-summary">No future taxable income entries yet.</p>
+            </div>
+            <button class="btn btn-ghost" type="button" id="reset-future-income-inline">Reset future</button>
+          </div>
+          <div class="future-list" id="future-income-list"></div>
+        </section>
+
+        <section class="card" aria-label="All taxable income entries">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>All entries</h2>
+              <p>Everything recorded, oldest first.</p>
+            </div>
+            <button class="btn btn-danger" type="button" id="reset-all-income">Reset all</button>
+          </div>
+          <div class="summary-grid" id="taxable-income-summary"></div>
+          <div class="table-wrap">
+            <table class="data-table">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -278,124 +254,105 @@
                   <th>Category</th>
                   <th>Job</th>
                   <th>Source</th>
-                  <th>Action</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="taxable-income-table"></tbody>
             </table>
           </div>
+        </section>
 
-          <label class="income-json-label">
-            Saved JSON for VS Code
+        <details class="card card-details">
+          <summary>Bulk paste &amp; export</summary>
+          <label class="field">
+            <span class="field-label">One row per event: date, amount, category, job</span>
+            <textarea
+              id="taxable-income-input"
+              placeholder="2026-01-15, 3500, normal paycheck, j1&#10;2026-02-01, 12000, bonus, j1&#10;2026-02-15, 4200, normal paycheck + rcu, j2"
+            ></textarea>
+          </label>
+          <div class="btn-row">
+            <button class="btn btn-primary" type="button" id="import-income-rows">Import pasted rows</button>
+            <button class="btn btn-ghost" type="button" id="copy-income-json">Copy JSON</button>
+            <button class="btn btn-ghost" type="button" id="download-income-json">Download JSON</button>
+          </div>
+          <label class="field">
+            <span class="field-label">Saved JSON</span>
             <textarea id="taxable-income-json" readonly></textarea>
           </label>
-        </section>
+        </details>
       </div>
 
       <div class="tab-panel" id="retirement-panel" role="tabpanel" aria-labelledby="retirement-tab" hidden>
-        <section class="panel income-panel retirement-panel">
-          <div class="panel-heading split-heading">
-            <div>
-              <span aria-hidden="true">🏦</span>
-              <div>
-                <h2>401k contribution tracker</h2>
-                <p>Add current and future 401k contributions for J1 and J2. Entries are saved locally, included in the stock tab's repo data export, and checked against the $24,500 yearly cap.</p>
-              </div>
-            </div>
-            <div class="income-action-row">
-              <button class="secondary-button" type="button" id="copy-retirement-json">Copy repo JSON</button>
-              <button class="secondary-button subtle-button" type="button" id="download-retirement-json">Download repo JSON</button>
-              <button class="reset-button" type="button" id="reset-all-retirement">Reset all entries</button>
+        <section class="stat-strip" aria-label="401k totals">
+          <article class="stat stat-accent">
+            <span class="stat-label">Total 401k</span>
+            <strong class="stat-value" id="retirement-total">$0</strong>
+            <small class="stat-note">All entries</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">J1</span>
+            <strong class="stat-value" id="retirement-j1-total">$0</strong>
+            <small class="stat-note">Job 1</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">J2</span>
+            <strong class="stat-value" id="retirement-j2-total">$0</strong>
+            <small class="stat-note">Job 2</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Future total</span>
+            <strong class="stat-value" id="future-retirement-total">$0</strong>
+            <small class="stat-note">Scheduled ahead</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Future J1</span>
+            <strong class="stat-value" id="future-retirement-j1-total">$0</strong>
+            <small class="stat-note">Projected</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Future J2</span>
+            <strong class="stat-value" id="future-retirement-j2-total">$0</strong>
+            <small class="stat-note">Projected</small>
+          </article>
+        </section>
+
+        <section class="stat-strip cap-strip" aria-label="401k cap status">
+          <article class="stat">
+            <span class="stat-label">2026 cap</span>
+            <strong class="stat-value" id="retirement-yearly-cap">$24,500</strong>
+            <small class="stat-note">Yearly limit</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Used in 2026</span>
+            <strong class="stat-value" id="retirement-current-year-total">$0</strong>
+            <small class="stat-note">Counts toward cap</small>
+          </article>
+          <article class="stat" id="retirement-cap-status-card">
+            <span class="stat-label">Remaining</span>
+            <strong class="stat-value" id="retirement-cap-remaining">$24,500</strong>
+            <small class="stat-note">Left to contribute</small>
+          </article>
+        </section>
+
+        <section class="card" aria-label="Add 401k contribution">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>Add a contribution</h2>
+              <p>Current and future 401k contributions for either job.</p>
             </div>
           </div>
-
-          <div class="income-total-grid" aria-label="401k contribution totals">
-            <article class="income-total-card income-j1">
-              <span>J1 401k contributions</span>
-              <strong id="retirement-j1-total">$0</strong>
-            </article>
-            <article class="income-total-card income-j2">
-              <span>J2 401k contributions</span>
-              <strong id="retirement-j2-total">$0</strong>
-            </article>
-            <article class="income-total-card income-total">
-              <span>Total 401k contributions</span>
-              <strong id="retirement-total">$0</strong>
-            </article>
-          </div>
-
-          <div class="income-total-grid future-income-grid" aria-label="Future 401k contribution totals">
-            <article class="income-total-card income-j1">
-              <span>Future J1 401k</span>
-              <strong id="future-retirement-j1-total">$0</strong>
-            </article>
-            <article class="income-total-card income-j2">
-              <span>Future J2 401k</span>
-              <strong id="future-retirement-j2-total">$0</strong>
-            </article>
-            <article class="income-total-card income-total">
-              <span>Future total 401k</span>
-              <strong id="future-retirement-total">$0</strong>
-            </article>
-          </div>
-
-          <div class="income-total-grid retirement-cap-grid" aria-label="401k yearly cap status">
-            <article class="income-total-card retirement-cap-card">
-              <span>2026 yearly cap</span>
-              <strong id="retirement-yearly-cap">$24,500</strong>
-            </article>
-            <article class="income-total-card retirement-cap-card">
-              <span>2026 contributions used</span>
-              <strong id="retirement-current-year-total">$0</strong>
-            </article>
-            <article class="income-total-card retirement-cap-card" id="retirement-cap-status-card">
-              <span>2026 cap remaining</span>
-              <strong id="retirement-cap-remaining">$24,500</strong>
-            </article>
-          </div>
-
-          <section class="income-autofill-card" aria-label="Future 401k contribution autofill">
-            <div>
-              <h3>Autofill future 2026 401k contributions</h3>
-              <p>Enter the expected 401k contribution for each future paycheck. The app creates future normal-paycheck contribution entries for J1 and J2; manual date-box overrides stay in place when you re-run autofill.</p>
-            </div>
-            <div class="income-baseline-grid">
-              <label>
-                J1 401k per future paycheck
-                <input id="retirement-baseline-j1" type="number" min="0" step="0.01" placeholder="0.00" />
-              </label>
-              <label>
-                J2 401k per future paycheck
-                <input id="retirement-baseline-j2" type="number" min="0" step="0.01" placeholder="0.00" />
-              </label>
-              <button class="secondary-button" type="button" id="autofill-future-retirement">Autofill future 401k</button>
-              <button class="reset-button" type="button" id="clear-autofill-retirement">Clear autofill</button>
-              <button class="reset-button" type="button" id="reset-future-retirement">Reset future entries</button>
-            </div>
-            <p class="helper-text" id="future-retirement-summary">Uses 24 scheduled 2026 pay dates from Jan 15 through Dec 31.</p>
-          </section>
-
-          <section class="paycheck-schedule-section" aria-label="2026 401k paycheck contribution boxes">
-            <div class="future-income-heading">
-              <div>
-                <h3>2026 401k contribution date boxes</h3>
-                <p>All scheduled paycheck dates are shown here. Edit a J1 or J2 scheduled amount in a date box to override an autofilled future paycheck, such as keeping May 29 at $200 while a new $500 amount starts on June 15.</p>
-              </div>
-            </div>
-            <div class="paycheck-schedule-grid" id="retirement-paycheck-schedule-grid"></div>
-          </section>
-
-          <form class="income-entry-form" id="retirement-entry-form">
-            <label>
-              Date
+          <form class="entry-form" id="retirement-entry-form">
+            <label class="field">
+              <span class="field-label">Date</span>
               <input id="retirement-date" type="date" required />
             </label>
-            <label>
-              401k contribution
+            <label class="field">
+              <span class="field-label">Contribution</span>
               <input id="retirement-amount" type="number" min="0" step="0.01" placeholder="500.00" required />
             </label>
-            <label>
-              Category
+            <label class="field">
+              <span class="field-label">Category</span>
               <select id="retirement-category">
                 <option value="Normal paycheck">Normal paycheck</option>
                 <option value="Bonus">Bonus</option>
@@ -403,81 +360,127 @@
                 <option value="RSU">RSU</option>
               </select>
             </label>
-            <label>
-              Job
+            <label class="field">
+              <span class="field-label">Job</span>
               <select id="retirement-job">
                 <option value="J1">J1</option>
                 <option value="J2">J2</option>
               </select>
             </label>
-            <button class="secondary-button" type="submit">＋ Save entry</button>
+            <button class="btn btn-primary" type="submit">Save entry</button>
           </form>
+          <p class="status-line" id="retirement-status">Add 401k contribution entries to see totals by J1, J2, and category.</p>
+        </section>
 
-          <details class="income-import-details">
-            <summary>Bulk paste comma-separated 401k entries</summary>
-            <label class="income-input-label">
-              One row per 401k contribution: date, contribution amount, category, job
-              <textarea
-                id="retirement-input"
-                placeholder="2026-01-15, 500, normal paycheck, j1&#10;2026-02-01, 3000, bonus, j1&#10;2026-02-15, 400, normal paycheck, j2"
-              ></textarea>
-            </label>
-            <button class="secondary-button" type="button" id="import-retirement-rows">Import pasted rows</button>
-          </details>
-
-          <p class="helper-text" id="retirement-status">Add 401k contribution entries to see totals by J1, J2, and category.</p>
-
-          <section class="future-income-section" aria-label="Future 401k contribution entries">
-            <div class="future-income-heading">
-              <div>
-                <h3>Future 401k contribution entries</h3>
-                <p id="future-retirement-list-summary">No future 401k contribution entries yet.</p>
-              </div>
-              <button class="reset-button" type="button" id="reset-future-retirement-inline">Reset future entries</button>
+        <section class="card" aria-label="Autofill future 401k">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>Autofill future contributions</h2>
+              <p>Per-paycheck amount for each job. Date-box overrides are preserved.</p>
             </div>
-            <div class="future-income-list" id="future-retirement-list"></div>
-          </section>
+          </div>
+          <div class="baseline-row">
+            <label class="field">
+              <span class="field-label">J1 per paycheck</span>
+              <input id="retirement-baseline-j1" type="number" min="0" step="0.01" placeholder="0.00" />
+            </label>
+            <label class="field">
+              <span class="field-label">J2 per paycheck</span>
+              <input id="retirement-baseline-j2" type="number" min="0" step="0.01" placeholder="0.00" />
+            </label>
+            <div class="btn-row">
+              <button class="btn btn-primary" type="button" id="autofill-future-retirement">Autofill</button>
+              <button class="btn btn-ghost" type="button" id="clear-autofill-retirement">Clear autofill</button>
+              <button class="btn btn-ghost" type="button" id="reset-future-retirement">Reset future</button>
+            </div>
+          </div>
+          <p class="status-line" id="future-retirement-summary">Uses 24 scheduled 2026 pay dates from Jan 15 through Dec 31.</p>
+        </section>
 
-          <div class="income-summary-grid" id="retirement-summary"></div>
-          <div class="income-table-wrap">
-            <table class="income-table">
+        <section class="card" aria-label="2026 401k contribution dates">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>2026 contribution dates</h2>
+              <p>Edit a scheduled amount to override an autofilled future paycheck.</p>
+            </div>
+          </div>
+          <div class="date-grid" id="retirement-paycheck-schedule-grid"></div>
+        </section>
+
+        <section class="card" aria-label="Future 401k entries">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>Future entries</h2>
+              <p id="future-retirement-list-summary">No future 401k contribution entries yet.</p>
+            </div>
+            <button class="btn btn-ghost" type="button" id="reset-future-retirement-inline">Reset future</button>
+          </div>
+          <div class="future-list" id="future-retirement-list"></div>
+        </section>
+
+        <section class="card" aria-label="All 401k entries">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>All entries</h2>
+              <p>Everything recorded, oldest first.</p>
+            </div>
+            <button class="btn btn-danger" type="button" id="reset-all-retirement">Reset all</button>
+          </div>
+          <div class="summary-grid" id="retirement-summary"></div>
+          <div class="table-wrap">
+            <table class="data-table">
               <thead>
                 <tr>
                   <th>Date</th>
-                  <th>401k contribution</th>
+                  <th>Contribution</th>
                   <th>Category</th>
                   <th>Job</th>
                   <th>Source</th>
-                  <th>Action</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="retirement-table"></tbody>
             </table>
           </div>
+        </section>
 
-          <label class="income-json-label">
-            Saved 401k repo JSON (data/401k-contributions.json)
+        <details class="card card-details">
+          <summary>Bulk paste &amp; export</summary>
+          <label class="field">
+            <span class="field-label">One row per contribution: date, amount, category, job</span>
+            <textarea
+              id="retirement-input"
+              placeholder="2026-01-15, 500, normal paycheck, j1&#10;2026-02-01, 3000, bonus, j1&#10;2026-02-15, 400, normal paycheck, j2"
+            ></textarea>
+          </label>
+          <div class="btn-row">
+            <button class="btn btn-primary" type="button" id="import-retirement-rows">Import pasted rows</button>
+            <button class="btn btn-ghost" type="button" id="copy-retirement-json">Copy JSON</button>
+            <button class="btn btn-ghost" type="button" id="download-retirement-json">Download JSON</button>
+          </div>
+          <label class="field">
+            <span class="field-label">Saved JSON</span>
             <textarea id="retirement-json" readonly></textarea>
           </label>
-        </section>
+        </details>
       </div>
     </main>
 
     <template id="grant-template">
       <div class="grant-card">
-        <label>
-          Name
+        <label class="field">
+          <span class="field-label">Name</span>
           <input data-field="label" placeholder="Grant name" />
         </label>
-        <label>
-          Shares
+        <label class="field">
+          <span class="field-label">Shares</span>
           <input data-field="shares" type="number" min="0" placeholder="1000" />
         </label>
-        <label>
-          First vest date
+        <label class="field">
+          <span class="field-label">First vest date</span>
           <input data-field="firstVestDate" type="date" />
         </label>
-        <button class="icon-button" type="button" data-action="remove">🗑 Remove</button>
+        <button class="btn btn-ghost btn-remove" type="button" data-action="remove">Remove</button>
       </div>
     </template>
 

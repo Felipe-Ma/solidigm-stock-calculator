@@ -6,9 +6,8 @@ const GRANT_STORE = 'grants';
 const METADATA_STORE = 'metadata';
 const QUARTERS_IN_LTI_PLAN = 16;
 const STOCK_PRICE_KEY = 'stockPrice';
-const WITHHOLDING_RATE_KEY = 'taxWithholdingRate';
 const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
-const NET_UNIT_OVERRIDES_KEY = 'netUnitOverrides';
+const VEST_ACTUALS_KEY = 'vestActuals';
 const TAXABLE_INCOME_INPUT_KEY = 'taxableIncomeInput';
 const TAXABLE_INCOME_ENTRIES_KEY = 'taxableIncomeEntries';
 const INCOME_BASELINES_KEY = 'incomeBaselines';
@@ -19,7 +18,6 @@ const APP_STATE_DATA_URL = '/data/app-state.json';
 const RETIREMENT_DATA_URL = '/data/401k-contributions.json';
 const RETIREMENT_CONTRIBUTION_CAP = 24500;
 const RETIREMENT_CAP_YEAR = 2026;
-const DEFAULT_TAX_WITHHOLDING_RATE = 0.415;
 const RETIREMENT_AUTOFILL_SOURCE = 'retirement-autofill';
 const RETIREMENT_OVERRIDE_SOURCE = 'retirement-override';
 
@@ -59,9 +57,8 @@ let grants = [];
 let database;
 let saveTimer;
 let stockPrice = 0;
-let taxWithholdingRate = DEFAULT_TAX_WITHHOLDING_RATE;
 let grantGrossOverrides = {};
-let netUnitOverrides = {};
+let vestActuals = {};
 let taxableIncomeEntries = [];
 let taxableIncomeDraftInput = '';
 let incomeBaselines = { J1: '', J2: '' };
@@ -82,8 +79,8 @@ const heldValue = document.querySelector('#held-value');
 const futureUnits = document.querySelector('#future-units');
 const futureValue = document.querySelector('#future-value');
 const stockPriceInput = document.querySelector('#stock-price');
-const withholdingRateInput = document.querySelector('#withholding-rate');
 const nextVestCaption = document.querySelector('#next-vest-caption');
+const realizedValue = document.querySelector('#realized-value');
 const grantTemplate = document.querySelector('#grant-template');
 const addGrantButton = document.querySelector('#add-grant');
 const copyAppStateJsonButton = document.querySelector('#copy-app-state-json');
@@ -251,14 +248,6 @@ function saveStockPrice() {
   });
 }
 
-function saveWithholdingRate() {
-  syncToCloud();
-  if (!database) return;
-  writeMetadata(WITHHOLDING_RATE_KEY, taxWithholdingRate).catch(() => {
-    databaseStatus.textContent = 'Could not cache withholding rate on this device.';
-  });
-}
-
 function saveGrantGrossOverrides() {
   syncToCloud();
   if (!database) return;
@@ -267,11 +256,11 @@ function saveGrantGrossOverrides() {
   });
 }
 
-function saveNetUnitOverrides() {
+function saveVestActuals() {
   syncToCloud();
   if (!database) return;
-  writeMetadata(NET_UNIT_OVERRIDES_KEY, netUnitOverrides).catch(() => {
-    databaseStatus.textContent = 'Could not cache post-tax unit correction on this device.';
+  writeMetadata(VEST_ACTUALS_KEY, vestActuals).catch(() => {
+    databaseStatus.textContent = 'Could not cache recorded vest on this device.';
   });
 }
 
@@ -389,17 +378,25 @@ function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value);
 }
 
-function getAfterTaxValue(value) {
-  return value * (1 - taxWithholdingRate);
-}
-
 function parseCurrencyAmount(value) {
   const amount = Number(String(value).replace(/[$,\s]/g, ''));
   return Number.isFinite(amount) ? amount : 0;
 }
 
-function getEffectiveNetShares(calculatedNetShares, override) {
-  return override === undefined || override === '' ? calculatedNetShares : parseShareAmount(override);
+function getVestActual(dateKey) {
+  const actual = vestActuals[dateKey];
+  if (!actual) return null;
+
+  const netUnits = actual.netUnits === '' || actual.netUnits === undefined ? null : parseShareAmount(actual.netUnits);
+  const price = actual.price === '' || actual.price === undefined ? null : parseCurrencyAmount(actual.price);
+  if (netUnits === null && price === null) return null;
+
+  return { netUnits, price, raw: actual };
+}
+
+function isVestRecorded(dateKey) {
+  const actual = getVestActual(dateKey);
+  return Boolean(actual && actual.netUnits !== null);
 }
 
 function parseWholeShareAmount(value) {
@@ -527,14 +524,17 @@ function getAdjustedSchedule(schedule) {
         grant.remainingPercentage = totalShares > 0
           ? Math.max(((totalShares - vestedToDate) / totalShares) * 100, 0)
           : 0;
-        grant.expectedNetAmount = getAfterTaxValue(entry.amount);
       });
   });
 
   adjustedSchedule.forEach((row) => {
     row.total = row.grants.reduce((sum, grant) => sum + grant.amount, 0);
-    row.expectedNetTotal = getAfterTaxValue(row.total);
-    row.netTotal = getEffectiveNetShares(row.expectedNetTotal, netUnitOverrides[toDateKey(row.date)]);
+    row.actual = getVestActual(toDateKey(row.date));
+    row.isRecorded = Boolean(row.actual && row.actual.netUnits !== null);
+    row.netUnits = row.isRecorded ? row.actual.netUnits : null;
+    row.vestPrice = row.actual && row.actual.price !== null ? row.actual.price : null;
+    row.withheldUnits = row.isRecorded ? Math.max(row.total - row.netUnits, 0) : null;
+    row.receivedValue = row.isRecorded && row.vestPrice !== null ? row.netUnits * row.vestPrice : null;
   });
 
   return adjustedSchedule;
@@ -717,13 +717,12 @@ function sanitizeSavedGrants(savedGrants) {
 
 function getAppStateData() {
   return {
-    version: 1,
+    version: 2,
     updatedAt: new Date().toISOString(),
     stockPrice,
-    taxWithholdingRate,
     grants: sanitizeSavedGrants(grants),
     grantGrossOverrides,
-    netUnitOverrides,
+    vestActuals,
     incomeBaselines,
     paycheckSchedule2026: PAYCHECK_SCHEDULE_2026,
     taxableIncomeEntries: sanitizeSavedIncomeEntries(taxableIncomeEntries),
@@ -742,12 +741,12 @@ async function copyAppStateJson() {
   const json = getAppStateJson();
   if (navigator.clipboard) {
     await navigator.clipboard.writeText(json);
-    databaseStatus.textContent = 'Copied repo data JSON. Paste it into data/app-state.json, then commit and push that file.';
+    databaseStatus.textContent = 'Copied a backup of your data to the clipboard.';
     return;
   }
 
   await copyTextWithHiddenTextarea(json);
-  databaseStatus.textContent = 'Copied repo data JSON. Paste it into data/app-state.json, then commit and push that file.';
+  databaseStatus.textContent = 'Copied a backup of your data to the clipboard.';
 }
 
 function downloadAppStateJson() {
@@ -757,7 +756,7 @@ function downloadAppStateJson() {
   link.download = 'app-state.json';
   link.click();
   URL.revokeObjectURL(link.href);
-  databaseStatus.textContent = 'Downloaded app-state.json. Replace data/app-state.json with it, then commit and push that file.';
+  databaseStatus.textContent = 'Downloaded a backup copy of your data.';
 }
 
 function copyTextWithHiddenTextarea(text) {
@@ -847,14 +846,14 @@ function renderTaxableIncome(message) {
   futurePaycheckSummary.textContent = getFuturePaycheckSummary();
   renderFutureIncomeList();
   renderPaycheckScheduleBoxes();
-  taxableIncomeStatus.textContent = message || `${taxableIncomeEntries.length} taxable income entr${taxableIncomeEntries.length === 1 ? 'y' : 'ies'} saved locally as JSON.`;
+  taxableIncomeStatus.textContent = message || `${taxableIncomeEntries.length} taxable income entr${taxableIncomeEntries.length === 1 ? 'y' : 'ies'} saved.`;
 
   const summaryCards = Object.entries(totals.byCategory).map(([label, value]) => ({ label, value, type: 'category' }));
 
   taxableIncomeSummary.innerHTML = summaryCards.length === 0
-    ? '<p class="empty-row income-empty-state">Add or import taxable income entries to calculate category totals.</p>'
+    ? '<p class="empty-state">Add or import taxable income entries to calculate category totals.</p>'
     : summaryCards.map((card) => `
-      <article class="income-summary-card income-${escapeHtml(card.type)}">
+      <article class="summary-card">
         <span>${escapeHtml(card.label)}</span>
         <strong>${formatCurrency(card.value)}</strong>
       </article>
@@ -862,15 +861,15 @@ function renderTaxableIncome(message) {
 
   const rows = [...taxableIncomeEntries].sort((a, b) => parseDate(a.dateKey) - parseDate(b.dateKey));
   taxableIncomeTable.innerHTML = rows.length === 0
-    ? '<tr><td colspan="6" class="income-table-empty">No taxable income entries yet.</td></tr>'
+    ? '<tr><td colspan="6" class="table-empty">No taxable income entries yet.</td></tr>'
     : rows.map((entry) => {
       const date = parseDate(entry.dateKey);
       return `
-        <tr class="income-row income-${toClassToken(entry.job)}${isFutureIncomeEntry(entry) ? ' future-income-row' : ''}">
+        <tr class="${isFutureIncomeEntry(entry) ? 'is-future' : ''}">
           <td><time datetime="${entry.dateKey}">${formatDate(date)}</time></td>
           <td>${formatCurrency(entry.amount)}</td>
           <td>${escapeHtml(entry.category)}</td>
-          <td><span class="job-pill job-${toClassToken(entry.job)}">${escapeHtml(entry.job)}</span></td>
+          <td><span class="pill pill-${toClassToken(entry.job)}">${escapeHtml(entry.job)}</span></td>
           <td>${formatIncomeSource(entry)}</td>
           <td><button class="text-button" type="button" data-action="remove-income-entry" data-entry-id="${entry.id}">Remove</button></td>
         </tr>
@@ -913,32 +912,31 @@ function renderPaycheckScheduleBoxes() {
     const runningTotals = getRunningIncomeTotalsThroughDate(paycheck.dateKey);
 
     return `
-      <article class="paycheck-date-card paycheck-${status}">
-        <div class="paycheck-date-header">
+      <article class="date-card is-${status}">
+        <div class="date-card-head">
           <div>
             <span>Paycheck ${paycheck.paycheckNumber}</span>
             <time datetime="${paycheck.dateKey}">${formatDate(date)}</time>
           </div>
           <strong>${formatCurrency(total)}</strong>
         </div>
-        <div class="paycheck-running-total" aria-label="Running taxable income through paycheck ${paycheck.paycheckNumber}">
-          <span>Running taxable income</span>
+        <div class="date-running" aria-label="Running taxable income through paycheck ${paycheck.paycheckNumber}">
+          <span>Running total</span>
           <strong>${formatCurrency(runningTotals.total)}</strong>
           <small>J1 ${formatCurrency(runningTotals.j1)} · J2 ${formatCurrency(runningTotals.j2)}</small>
         </div>
-        <span class="paycheck-status-pill">${status === 'today' ? 'Today' : status}</span>
-        <div class="paycheck-entry-list">
+        <div class="date-entries">
           ${entries.length === 0
-    ? '<p class="empty-row paycheck-empty-state">No entries for this date yet.</p>'
+    ? '<p class="status-line">No entries for this date.</p>'
     : entries.map((entry) => `
-            <div class="paycheck-entry income-${toClassToken(entry.job)}">
+            <div class="date-entry income-${toClassToken(entry.job)}">
               <span>${escapeHtml(entry.job)} · ${escapeHtml(entry.category)}</span>
               <strong>${formatCurrency(entry.amount)}</strong>
               <button class="text-button" type="button" data-action="remove-income-entry" data-entry-id="${entry.id}">Remove</button>
             </div>
           `).join('')}
         </div>
-        <button class="text-button use-date-button" type="button" data-action="use-paycheck-date" data-date-key="${paycheck.dateKey}">Use this date</button>
+        <button class="text-button" type="button" data-action="use-paycheck-date" data-date-key="${paycheck.dateKey}">Use this date</button>
       </article>
     `;
   }).join('');
@@ -952,11 +950,11 @@ function renderFutureIncomeList() {
     : `${futureEntries.length} future entr${futureEntries.length === 1 ? 'y' : 'ies'} visible here, including ${futureAutofillCount} autofilled entr${futureAutofillCount === 1 ? 'y' : 'ies'}.`;
 
   futureIncomeList.innerHTML = futureEntries.length === 0
-    ? '<p class="empty-row future-income-empty-state">Autofill or manually add future-dated taxable income to see it here.</p>'
+    ? '<p class="empty-state">Autofill or manually add future-dated taxable income to see it here.</p>'
     : futureEntries.map((entry) => {
       const date = parseDate(entry.dateKey);
       return `
-        <article class="future-income-card income-${toClassToken(entry.job)}">
+        <article class="future-card income-${toClassToken(entry.job)}">
           <div>
             <time datetime="${entry.dateKey}">${formatDate(date)}</time>
             <strong>${formatCurrency(entry.amount)}</strong>
@@ -996,7 +994,7 @@ function addTaxableIncomeEntry(event) {
   incomeEntryForm.reset();
   incomeCategoryInput.value = 'Normal paycheck';
   incomeJobInput.value = 'J1';
-  persistTaxableIncomeEntries('Saved taxable income entry locally as JSON.');
+  persistTaxableIncomeEntries('Saved taxable income entry.');
 }
 
 function getFuturePaycheckSchedule() {
@@ -1261,11 +1259,11 @@ function renderFutureRetirementList() {
     : `${futureEntries.length} future 401k entr${futureEntries.length === 1 ? 'y' : 'ies'} visible here, including ${futureAutofillCount} autofilled entr${futureAutofillCount === 1 ? 'y' : 'ies'}.`;
 
   futureRetirementList.innerHTML = futureEntries.length === 0
-    ? '<p class="empty-row future-income-empty-state">Autofill or manually add future-dated 401k contributions to see them here.</p>'
+    ? '<p class="empty-state">Autofill or manually add future-dated 401k contributions to see them here.</p>'
     : futureEntries.map((entry) => {
       const date = parseDate(entry.dateKey);
       return `
-        <article class="future-income-card income-${toClassToken(entry.job)}">
+        <article class="future-card income-${toClassToken(entry.job)}">
           <div>
             <time datetime="${entry.dateKey}">${formatDate(date)}</time>
             <strong>${formatCurrency(entry.amount)}</strong>
@@ -1298,8 +1296,8 @@ function renderRetirementPaycheckScheduleBoxes() {
       const scheduledAmount = getScheduledRetirementAmount(paycheck.dateKey, job);
       const hasOverride = hasScheduledRetirementOverride(paycheck.dateKey, job);
       return `
-        <label class="retirement-quick-edit-field${hasOverride ? ' has-override' : ''}">
-          <span>${job} scheduled 401k${hasOverride ? ' override' : ''}</span>
+        <label class="field${hasOverride ? ' is-override' : ''}">
+          <span class="field-label">${job}${hasOverride ? ' override' : ''}</span>
           <input
             data-action="update-retirement-scheduled-contribution"
             data-date-key="${paycheck.dateKey}"
@@ -1316,30 +1314,29 @@ function renderRetirementPaycheckScheduleBoxes() {
     }).join('');
 
     return `
-      <article class="paycheck-date-card paycheck-${status}">
-        <div class="paycheck-date-header">
+      <article class="date-card is-${status}">
+        <div class="date-card-head">
           <div>
             <span>Paycheck ${paycheck.paycheckNumber}</span>
             <time datetime="${paycheck.dateKey}">${formatDate(date)}</time>
           </div>
           <strong>${formatCurrency(total)}</strong>
         </div>
-        <span class="paycheck-status-pill">${status === 'today' ? 'Today' : status}</span>
-        <div class="retirement-quick-edit" aria-label="Manual scheduled 401k edits">
+        <div class="date-inputs" aria-label="Manual scheduled 401k edits">
           ${quickEditFields}
         </div>
-        <div class="paycheck-entry-list">
+        <div class="date-entries">
           ${entries.length === 0
-    ? '<p class="empty-row paycheck-empty-state">No 401k contributions for this date yet.</p>'
+    ? '<p class="status-line">No contributions for this date.</p>'
     : entries.map((entry) => `
-            <div class="paycheck-entry income-${toClassToken(entry.job)}">
-              <span>${escapeHtml(entry.job)} · ${escapeHtml(entry.category)} · ${formatIncomeSource(entry)}</span>
+            <div class="date-entry income-${toClassToken(entry.job)}">
+              <span>${escapeHtml(entry.job)} · ${escapeHtml(entry.category)}</span>
               <strong>${formatCurrency(entry.amount)}</strong>
               <button class="text-button" type="button" data-action="remove-retirement-entry" data-entry-id="${entry.id}">Remove</button>
             </div>
           `).join('')}
         </div>
-        <button class="text-button use-date-button" type="button" data-action="use-retirement-date" data-date-key="${paycheck.dateKey}">Use this date</button>
+        <button class="text-button" type="button" data-action="use-retirement-date" data-date-key="${paycheck.dateKey}">Use this date</button>
       </article>
     `;
   }).join('');
@@ -1357,7 +1354,8 @@ function renderRetirementContributions(message) {
   retirementYearlyCap.textContent = formatCurrency(RETIREMENT_CONTRIBUTION_CAP);
   retirementCurrentYearTotal.textContent = formatCurrency(totals.capYearTotal);
   retirementCapRemaining.textContent = capRemaining >= 0 ? formatCurrency(capRemaining) : `${formatCurrency(Math.abs(capRemaining))} over`;
-  retirementCapStatusCard.classList.toggle('is-over-cap', capRemaining < 0);
+  retirementCapStatusCard.classList.toggle('is-over', capRemaining < 0);
+  retirementCapStatusCard.classList.toggle('is-under', capRemaining >= 0);
   retirementJsonOutput.value = getRetirementJson();
   futureRetirementSummary.textContent = getFutureRetirementSummary();
   renderFutureRetirementList();
@@ -1366,14 +1364,14 @@ function renderRetirementContributions(message) {
   const capMessage = capRemaining < 0
     ? ` You are ${formatCurrency(Math.abs(capRemaining))} over the ${RETIREMENT_CAP_YEAR} cap.`
     : ` ${formatCurrency(capRemaining)} remains under the ${RETIREMENT_CAP_YEAR} cap.`;
-  retirementStatus.textContent = message || `${retirementContributionEntries.length} 401k contribution entr${retirementContributionEntries.length === 1 ? 'y' : 'ies'} saved locally as JSON.${capMessage}`;
+  retirementStatus.textContent = message || `${retirementContributionEntries.length} 401k contribution entr${retirementContributionEntries.length === 1 ? 'y' : 'ies'} saved.${capMessage}`;
 
   const summaryCards = Object.entries(totals.byCategory).map(([label, value]) => ({ label, value, type: 'category' }));
 
   retirementSummary.innerHTML = summaryCards.length === 0
-    ? '<p class="empty-row income-empty-state">Add or import 401k contributions to calculate category totals.</p>'
+    ? '<p class="empty-state">Add or import 401k contributions to calculate category totals.</p>'
     : summaryCards.map((card) => `
-      <article class="income-summary-card income-${escapeHtml(card.type)}">
+      <article class="summary-card">
         <span>${escapeHtml(card.label)}</span>
         <strong>${formatCurrency(card.value)}</strong>
       </article>
@@ -1381,15 +1379,15 @@ function renderRetirementContributions(message) {
 
   const rows = [...retirementContributionEntries].sort((a, b) => parseDate(a.dateKey) - parseDate(b.dateKey));
   retirementTable.innerHTML = rows.length === 0
-    ? '<tr><td colspan="6" class="income-table-empty">No 401k contribution entries yet.</td></tr>'
+    ? '<tr><td colspan="6" class="table-empty">No 401k contribution entries yet.</td></tr>'
     : rows.map((entry) => {
       const date = parseDate(entry.dateKey);
       return `
-        <tr class="income-row income-${toClassToken(entry.job)}${isFutureRetirementEntry(entry) ? ' future-income-row' : ''}">
+        <tr class="${isFutureRetirementEntry(entry) ? 'is-future' : ''}">
           <td><time datetime="${entry.dateKey}">${formatDate(date)}</time></td>
           <td>${formatCurrency(entry.amount)}</td>
           <td>${escapeHtml(entry.category)}</td>
-          <td><span class="job-pill job-${toClassToken(entry.job)}">${escapeHtml(entry.job)}</span></td>
+          <td><span class="pill pill-${toClassToken(entry.job)}">${escapeHtml(entry.job)}</span></td>
           <td>${formatIncomeSource(entry)}</td>
           <td><button class="text-button" type="button" data-action="remove-retirement-entry" data-entry-id="${entry.id}">Remove</button></td>
         </tr>
@@ -1425,7 +1423,7 @@ function addRetirementContributionEntry(event) {
   retirementEntryForm.reset();
   retirementCategoryInput.value = 'Normal paycheck';
   retirementJobInput.value = 'J1';
-  persistRetirementContributionEntries('Saved 401k contribution entry locally as JSON.');
+  persistRetirementContributionEntries('Saved 401k contribution entry.');
 }
 
 function updateRetirementBaseline(job, value) {
@@ -1554,13 +1552,13 @@ async function copyRetirementJson() {
   const json = getRetirementJson();
   if (navigator.clipboard) {
     await navigator.clipboard.writeText(json);
-    renderRetirementContributions('Copied 401k JSON. Paste it into data/401k-contributions.json and commit the JSON change.');
+    renderRetirementContributions('Copied 401k JSON to the clipboard.');
     return;
   }
 
   retirementJsonOutput.select();
   document.execCommand('copy');
-  renderRetirementContributions('Copied 401k JSON. Paste it into data/401k-contributions.json and commit the JSON change.');
+  renderRetirementContributions('Copied 401k JSON to the clipboard.');
 }
 
 function downloadRetirementJson() {
@@ -1570,7 +1568,7 @@ function downloadRetirementJson() {
   link.download = '401k-contributions.json';
   link.click();
   URL.revokeObjectURL(link.href);
-  renderRetirementContributions('Downloaded 401k-contributions.json. Replace data/401k-contributions.json with it and commit the JSON change.');
+  renderRetirementContributions('Downloaded a copy of your 401k entries.');
 }
 
 function switchTab(targetPanelId) {
@@ -1592,7 +1590,7 @@ function renderGrantInputs() {
 
   if (grants.length === 0) {
     const emptyState = document.createElement('p');
-    emptyState.className = 'empty-row grant-empty-state';
+    emptyState.className = 'empty-state';
     emptyState.textContent = 'No grants yet. Add your first grant to build the 4-year schedule.';
     grantList.append(emptyState);
     return;
@@ -1619,38 +1617,33 @@ function renderGrantInputs() {
 function renderSchedule() {
   const schedule = getAdjustedSchedule(getSchedule());
   const today = startOfToday();
+
   const totalGrossShares = schedule.reduce((sum, row) => sum + row.total, 0);
-  const totalNetShares = schedule.reduce((sum, row) => sum + row.netTotal, 0);
-  const heldNetShares = schedule
-    .filter((row) => row.date <= today)
-    .reduce((sum, row) => sum + row.netTotal, 0);
-  const futureNetShares = totalNetShares - heldNetShares;
-  const nextRow = schedule.find((row) => row.date > today) || null;
-  const nextNetShares = nextRow ? nextRow.netTotal : 0;
+  const heldNetUnits = schedule.reduce((sum, row) => sum + (row.isRecorded ? row.netUnits : 0), 0);
+  const realizedTotal = schedule.reduce((sum, row) => sum + (row.receivedValue ?? 0), 0);
+  const remainingGrossUnits = schedule.reduce((sum, row) => sum + (row.isRecorded ? 0 : row.total), 0);
+  const nextRow = schedule.find((row) => !row.isRecorded && row.date > today) || null;
+  const dueRow = schedule.find((row) => !row.isRecorded && row.date <= today) || null;
 
   grandTotal.textContent = formatShares(totalGrossShares);
-  totalValue.textContent = formatCurrency(totalNetShares * stockPrice);
-  nextVestValue.textContent = nextRow ? formatCurrency(nextNetShares * stockPrice) : '—';
-  if (nextVestCaption) {
-    nextVestCaption.textContent = nextRow ? `Next net payout · ${formatDate(nextRow.date)}` : 'Next net payout · none left';
-  }
-  heldUnits.textContent = formatShares(heldNetShares);
-  heldValue.textContent = formatCurrency(heldNetShares * stockPrice);
-  futureUnits.textContent = formatShares(futureNetShares);
-  futureValue.textContent = formatCurrency(futureNetShares * stockPrice);
+  totalValue.textContent = formatCurrency((heldNetUnits + remainingGrossUnits) * stockPrice);
+  heldUnits.textContent = formatShares(heldNetUnits);
+  heldValue.textContent = `${formatCurrency(heldNetUnits * stockPrice)} at today's price`;
+  realizedValue.textContent = formatCurrency(realizedTotal);
+  futureUnits.textContent = formatShares(remainingGrossUnits);
+  futureValue.textContent = `${formatCurrency(remainingGrossUnits * stockPrice)} at today's price`;
+  nextVestValue.textContent = nextRow ? formatShares(nextRow.total) : '—';
+  nextVestCaption.textContent = nextRow ? `Next vest · ${formatDate(nextRow.date)}` : 'Next vest';
+
   scheduleGrid.replaceChildren();
 
   if (schedule.length === 0) {
     const emptyState = document.createElement('p');
-    emptyState.className = 'empty-row schedule-empty-state';
-    emptyState.textContent = 'Add a grant with shares and a first vest date to see the calculated schedule.';
+    emptyState.className = 'empty-state';
+    emptyState.textContent = 'Add a grant with shares and a first vest date to build the schedule.';
     scheduleGrid.append(emptyState);
     return;
   }
-
-  let runningGrossShares = 0;
-  let runningNetShares = 0;
-  const nextDateKey = nextRow ? toDateKey(nextRow.date) : null;
 
   const overAllocatedGrants = [];
   const grantTotals = new Map();
@@ -1671,109 +1664,124 @@ function renderSchedule() {
     const warning = document.createElement('p');
     warning.className = 'schedule-warning';
     warning.setAttribute('role', 'alert');
-    warning.textContent = `⚠ Gross corrections exceed the grant total for: ${overAllocatedGrants.join(', ')}. Lower the corrections or the schedule will over-count shares.`;
+    warning.textContent = `Gross corrections exceed the grant total for: ${overAllocatedGrants.join(', ')}. Lower the corrections or the schedule will over-count shares.`;
     scheduleGrid.append(warning);
   }
 
-  const periodList = document.createElement('div');
-  periodList.className = 'payout-period-list';
-  periodList.innerHTML = schedule.map((row, index) => {
+  const dueDateKey = dueRow ? toDateKey(dueRow.date) : null;
+  const nextDateKey = nextRow ? toDateKey(nextRow.date) : null;
+
+  const list = document.createElement('div');
+  list.className = 'schedule-grid';
+  list.innerHTML = schedule.map((row, index) => {
     const dateKey = toDateKey(row.date);
-    const isPast = row.date <= today;
+    const isDue = dateKey === dueDateKey;
     const isNext = dateKey === nextDateKey;
-    const netOverride = netUnitOverrides[dateKey];
-    const calculatedGrossShares = row.calculatedTotal;
-    const effectiveGrossShares = row.total;
-    const expectedNetShares = row.expectedNetTotal;
-    const netShares = row.netTotal;
-    const taxWithheldShares = effectiveGrossShares - netShares;
-    const grossValue = effectiveGrossShares * stockPrice;
-    const withheldValue = taxWithheldShares * stockPrice;
-    const netValue = netShares * stockPrice;
+    const canRecord = row.date <= today || row.isRecorded;
 
-    runningGrossShares += effectiveGrossShares;
-    runningNetShares += netShares;
+    const state = row.isRecorded ? 'is-recorded' : isDue ? 'is-due' : isNext ? 'is-next' : '';
+    const badge = row.isRecorded
+      ? '<span class="badge badge-recorded">Recorded</span>'
+      : isDue
+        ? '<span class="badge badge-due">Awaiting actuals</span>'
+        : isNext
+          ? '<span class="badge badge-next">Next</span>'
+          : '<span class="badge badge-upcoming">Upcoming</span>';
 
-    return `
-      <article class="payout-card${isPast ? ' is-past' : ''}${isNext ? ' is-next' : ''}">
-        <div class="payout-card-header">
-          <div>
-            <strong class="payout-period">Period ${index + 1}</strong>
-            <time datetime="${dateKey}">${formatDate(row.date)}</time>
-            ${isNext ? '<span class="next-vest-badge">Next vest</span>' : ''}
-            ${isPast ? '<span class="past-vest-badge">Vested</span>' : ''}
+    const figures = row.isRecorded
+      ? `
+          <div class="figure">
+            <span class="figure-label">Gross units</span>
+            <strong class="figure-value">${formatShares(row.total)}</strong>
           </div>
-          <div class="combined-payout">
-            <span>${formatShares(netShares)} net units</span>
-            <small>${formatShares(effectiveGrossShares)} gross units from ${row.grants.length} grant${row.grants.length === 1 ? '' : 's'}</small>
+          <div class="figure figure-positive">
+            <span class="figure-label">Net received</span>
+            <strong class="figure-value">${formatShares(row.netUnits)}</strong>
           </div>
-        </div>
+          <div class="figure figure-muted">
+            <span class="figure-label">Withheld for tax</span>
+            <strong class="figure-value">${formatShares(row.withheldUnits)}</strong>
+          </div>
+          <div class="figure">
+            <span class="figure-label">Value at vest</span>
+            <strong class="figure-value">${row.receivedValue === null ? '—' : formatCurrency(row.receivedValue)}</strong>
+          </div>
+          <div class="figure figure-muted">
+            <span class="figure-label">Worth today</span>
+            <strong class="figure-value">${formatCurrency(row.netUnits * stockPrice)}</strong>
+          </div>
+        `
+      : `
+          <div class="figure">
+            <span class="figure-label">Gross units</span>
+            <strong class="figure-value">${formatShares(row.total)}</strong>
+          </div>
+          <div class="figure figure-muted">
+            <span class="figure-label">Gross value today</span>
+            <strong class="figure-value">${formatCurrency(row.total * stockPrice)}</strong>
+          </div>
+          <div class="figure figure-muted">
+            <span class="figure-label">From</span>
+            <strong class="figure-value">${row.grants.length} grant${row.grants.length === 1 ? '' : 's'}</strong>
+          </div>
+        `;
 
-        <div class="payout-summary-grid" aria-label="Payout period totals">
-          <div class="payout-summary-item">
-            <span>Calculated gross</span>
-            <strong>${formatShares(calculatedGrossShares)}</strong>
-          </div>
-          <div class="payout-summary-item">
-            <span>Adjusted gross</span>
-            <strong>${formatShares(effectiveGrossShares)}</strong>
-          </div>
-          <div class="payout-summary-item net-item">
-            <span>Expected post-tax</span>
-            <strong>${formatShares(expectedNetShares)}</strong>
-          </div>
-          <label class="payout-summary-item net-override-item">
-            <span>Correct post-tax units</span>
+    const actualsBlock = canRecord
+      ? `
+        <div class="vest-actuals">
+          <span class="vest-actuals-title">${row.isRecorded ? 'Recorded actuals' : 'Record what you actually received'}</span>
+          <label class="field">
+            <span class="field-label">Net units received</span>
             <input
-              data-action="correct-net-payout"
+              data-action="vest-net-units"
+              data-date-key="${dateKey}"
+              type="number"
+              step="0.0001"
+              min="0"
+              placeholder="0"
+              value="${escapeHtml(String(row.actual?.raw?.netUnits ?? ''))}"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label">Share price at vest</span>
+            <input
+              data-action="vest-price"
               data-date-key="${dateKey}"
               type="number"
               step="0.01"
               min="0"
-              placeholder="${formatShares(expectedNetShares)}"
-              value="${netOverride ?? ''}"
+              placeholder="0.00"
+              value="${escapeHtml(String(row.actual?.raw?.price ?? ''))}"
             />
           </label>
-          <div class="payout-summary-item withholding-item">
-            <span>Units withheld</span>
-            <strong>${formatShares(taxWithheldShares)}</strong>
+        </div>
+      `
+      : '';
+
+    return `
+      <article class="vest-card ${state}">
+        <div class="vest-head">
+          <div class="vest-when">
+            <span class="vest-index">Period ${index + 1}</span>
+            <time datetime="${dateKey}">${formatDate(row.date)}</time>
           </div>
-          <div class="payout-summary-item net-item">
-            <span>Final post-tax units</span>
-            <strong>${formatShares(netShares)}</strong>
-          </div>
-          <div class="payout-summary-item">
-            <span>Gross value</span>
-            <strong>${formatCurrency(grossValue)}</strong>
-          </div>
-          <div class="payout-summary-item withholding-item">
-            <span>Withheld value</span>
-            <strong>${formatCurrency(withheldValue)}</strong>
-          </div>
-          <div class="payout-summary-item net-item">
-            <span>Net payout</span>
-            <strong>${formatCurrency(netValue)}</strong>
-          </div>
-          <div class="payout-summary-item running-item">
-            <span>Running gross units</span>
-            <strong>${formatShares(runningGrossShares)}</strong>
-          </div>
-          <div class="payout-summary-item running-item">
-            <span>Running net units</span>
-            <strong>${formatShares(runningNetShares)}</strong>
-          </div>
+          ${badge}
         </div>
 
-        <details class="grant-breakdown-details">
-          <summary>View grant sources & remaining</summary>
-          <div class="grant-breakdown">
+        <div class="vest-figures">${figures}</div>
+
+        ${actualsBlock}
+
+        <details class="vest-sources">
+          <summary>Grant breakdown</summary>
+          <div class="source-list">
             ${row.grants.map((grant) => `
-              <div class="grant-vest-line">
-                <span class="grant-name">${escapeHtml(grant.label)}</span>
-                <span>Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
-                <span>${formatShares(grant.calculatedAmount)} calc. gross</span>
-                <label class="grant-override-field">
-                  Correct gross
+              <div class="source-row">
+                <span class="source-name">${escapeHtml(grant.label)}</span>
+                <span class="source-muted">Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
+                <span class="source-muted">${formatShares(grant.calculatedAmount)} scheduled</span>
+                <label class="field">
+                  <span class="field-label">Correct gross</span>
                   <input
                     data-action="correct-grant-gross"
                     data-grant-id="${grant.id}"
@@ -1782,12 +1790,10 @@ function renderSchedule() {
                     step="1"
                     min="0"
                     placeholder="${formatShares(grant.calculatedAmount)}"
-                    value="${grantGrossOverrides[toGrantOverrideKey(grant.id, grant.vestNumber)] ?? ''}"
+                    value="${escapeHtml(String(grantGrossOverrides[toGrantOverrideKey(grant.id, grant.vestNumber)] ?? ''))}"
                   />
                 </label>
-                <span>${formatShares(grant.amount)} adjusted gross</span>
-                <span>${formatShares(grant.expectedNetAmount)} expected net</span>
-                <span class="remaining-percent">${formatShares(grant.remainingPercentage)}% remaining</span>
+                <span class="source-muted">${formatShares(grant.remainingPercentage)}% left</span>
               </div>
             `).join('')}
           </div>
@@ -1796,7 +1802,7 @@ function renderSchedule() {
     `;
   }).join('');
 
-  scheduleGrid.append(periodList);
+  scheduleGrid.append(list);
 }
 
 function updateGrant(id, field, value) {
@@ -1818,24 +1824,33 @@ function updateGrantGrossOverride(grantId, vestNumber, value) {
   saveGrantGrossOverrides();
 }
 
-function updateNetUnitOverride(dateKey, value) {
-  netUnitOverrides = { ...netUnitOverrides };
+function updateVestActual(dateKey, field, value) {
+  const next = { ...vestActuals };
+  const entry = { ...(next[dateKey] || {}) };
+
   if (value === '') {
-    delete netUnitOverrides[dateKey];
+    delete entry[field];
   } else {
-    netUnitOverrides[dateKey] = value;
+    entry[field] = value;
   }
 
+  if (Object.keys(entry).length === 0) {
+    delete next[dateKey];
+  } else {
+    next[dateKey] = entry;
+  }
+
+  vestActuals = next;
   renderSchedule();
-  saveNetUnitOverrides();
+  saveVestActuals();
 }
 
 function resetManualCorrections() {
   grantGrossOverrides = {};
-  netUnitOverrides = {};
+  vestActuals = {};
   renderSchedule();
   saveGrantGrossOverrides();
-  saveNetUnitOverrides();
+  saveVestActuals();
 }
 
 function addGrant() {
@@ -1869,15 +1884,25 @@ function escapeHtml(value) {
   }[character]));
 }
 
+// Older saves stored a single post-tax unit count per vest date instead of recorded actuals.
+function migrateNetUnitOverrides(overrides) {
+  if (!overrides || typeof overrides !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(overrides)
+      .filter(([, value]) => value !== '' && value !== undefined && value !== null)
+      .map(([dateKey, value]) => [dateKey, { netUnits: String(value) }]),
+  );
+}
+
 async function initializeApp() {
   database = await openDatabase();
   const cloud = await loadCloudState();
   const cloudState = cloud.state;
   const hasInitialized = await readMetadata('initialized');
   const savedStockPrice = cloudState ? cloudState.stockPrice : await readMetadata(STOCK_PRICE_KEY);
-  const savedWithholdingRate = cloudState ? cloudState.taxWithholdingRate : await readMetadata(WITHHOLDING_RATE_KEY);
   const savedGrantGrossOverrides = cloudState ? cloudState.grantGrossOverrides : await readMetadata(GRANT_GROSS_OVERRIDES_KEY);
-  const savedNetUnitOverrides = cloudState ? cloudState.netUnitOverrides : await readMetadata(NET_UNIT_OVERRIDES_KEY);
+  const savedVestActuals = cloudState ? cloudState.vestActuals : await readMetadata(VEST_ACTUALS_KEY);
+  const legacyNetOverrides = cloudState ? cloudState.netUnitOverrides : await readMetadata('netUnitOverrides');
   const savedTaxableIncomeInput = await readMetadata(TAXABLE_INCOME_INPUT_KEY);
   const savedTaxableIncomeEntries = cloudState ? cloudState.taxableIncomeEntries : await readMetadata(TAXABLE_INCOME_ENTRIES_KEY);
   const savedIncomeBaselines = cloudState ? cloudState.incomeBaselines : await readMetadata(INCOME_BASELINES_KEY);
@@ -1888,15 +1913,15 @@ async function initializeApp() {
   const codeRetirementData = await readRetirementCodeJson();
 
   stockPrice = Number(savedStockPrice ?? codeAppStateData?.stockPrice) || 0;
-  const loadedRate = Number(savedWithholdingRate ?? codeAppStateData?.taxWithholdingRate);
-  taxWithholdingRate = Number.isFinite(loadedRate) && loadedRate >= 0 && loadedRate <= 1 ? loadedRate : DEFAULT_TAX_WITHHOLDING_RATE;
   grantGrossOverrides = {
     ...(codeAppStateData?.grantGrossOverrides || {}),
     ...(savedGrantGrossOverrides || {}),
   };
-  netUnitOverrides = {
-    ...(codeAppStateData?.netUnitOverrides || {}),
-    ...(savedNetUnitOverrides || {}),
+  vestActuals = {
+    ...migrateNetUnitOverrides(codeAppStateData?.netUnitOverrides),
+    ...migrateNetUnitOverrides(legacyNetOverrides),
+    ...(codeAppStateData?.vestActuals || {}),
+    ...(savedVestActuals || {}),
   };
 
   taxableIncomeDraftInput = savedTaxableIncomeInput || '';
@@ -1945,7 +1970,6 @@ async function initializeApp() {
   retirementBaselineJ2Input.value = retirementBaselines.J2 || '';
   retirementContributionEntries = [...codeRetirementEntries, ...browserOnlyRetirementEntries];
   stockPriceInput.value = stockPrice || '';
-  withholdingRateInput.value = Math.round(taxWithholdingRate * 10000) / 100;
 
   const repoGrants = sanitizeSavedGrants(codeAppStateData?.grants || []);
   const browserGrants = sanitizeSavedGrants(cloudState ? cloudState.grants || [] : await readGrants());
@@ -1990,28 +2014,16 @@ function updateStockPrice(value) {
   saveStockPrice();
 }
 
-function updateWithholdingRate(value) {
-  if (String(value).trim() === '') {
-    taxWithholdingRate = DEFAULT_TAX_WITHHOLDING_RATE;
-  } else {
-    const percent = Number(value);
-    taxWithholdingRate = Number.isFinite(percent) ? Math.min(Math.max(percent, 0), 100) / 100 : DEFAULT_TAX_WITHHOLDING_RATE;
-  }
-  renderSchedule();
-  saveWithholdingRate();
-}
-
 addGrantButton.disabled = true;
 addGrantButton.addEventListener('click', addGrant);
 copyAppStateJsonButton.addEventListener('click', () => {
   copyAppStateJson().catch(() => {
-    databaseStatus.textContent = 'Could not copy repo data automatically. Download app-state.json instead.';
+    databaseStatus.textContent = 'Could not copy automatically. Use Download backup instead.';
   });
 });
 downloadAppStateJsonButton.addEventListener('click', downloadAppStateJson);
 resetCorrectionsButton.addEventListener('click', resetManualCorrections);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
-withholdingRateInput.addEventListener('input', (event) => updateWithholdingRate(event.target.value));
 taxableIncomeInputField.addEventListener('input', (event) => updateTaxableIncomeDraft(event.target.value));
 retirementInputField.addEventListener('input', (event) => updateRetirementDraft(event.target.value));
 incomeEntryForm.addEventListener('submit', addTaxableIncomeEntry);
@@ -2061,8 +2073,11 @@ scheduleGrid.addEventListener('change', (event) => {
   if (event.target.dataset.action === 'correct-grant-gross') {
     updateGrantGrossOverride(event.target.dataset.grantId, event.target.dataset.vestNumber, event.target.value);
   }
-  if (event.target.dataset.action === 'correct-net-payout') {
-    updateNetUnitOverride(event.target.dataset.dateKey, event.target.value);
+  if (event.target.dataset.action === 'vest-net-units') {
+    updateVestActual(event.target.dataset.dateKey, 'netUnits', event.target.value);
+  }
+  if (event.target.dataset.action === 'vest-price') {
+    updateVestActual(event.target.dataset.dateKey, 'price', event.target.value);
   }
 });
 document.querySelector('#income-panel').addEventListener('click', (event) => {
