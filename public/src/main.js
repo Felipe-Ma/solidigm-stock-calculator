@@ -5,6 +5,9 @@ const DATABASE_VERSION = 2;
 const GRANT_STORE = 'grants';
 const METADATA_STORE = 'metadata';
 const QUARTERS_IN_LTI_PLAN = 16;
+// The LTI plan vests on fixed calendar dates: Jan 30, Apr 30, Jul 30, Oct 30.
+const LTI_VEST_MONTHS = [0, 3, 6, 9];
+const LTI_VEST_DAY = 30;
 const STOCK_PRICE_KEY = 'stockPrice';
 const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
 const VEST_ACTUALS_KEY = 'vestActuals';
@@ -22,8 +25,8 @@ const RETIREMENT_AUTOFILL_SOURCE = 'retirement-autofill';
 const RETIREMENT_OVERRIDE_SOURCE = 'retirement-override';
 
 const DEFAULT_GRANTS = [
-  { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', firstVestDate: '2025-01-30' },
-  { id: crypto.randomUUID(), label: 'Grant B', shares: '800', firstVestDate: '2025-04-30' },
+  { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', vestingStartDate: '2025-01-30' },
+  { id: crypto.randomUUID(), label: 'Grant B', shares: '800', vestingStartDate: '2025-04-30' },
 ];
 
 const PAYCHECK_SCHEDULE_2026 = [
@@ -434,7 +437,23 @@ function startOfToday() {
   return today;
 }
 
-function getGrantVestDates(firstVestDate) {
+// The agreement excludes the vesting start date itself, so the first vest is the next plan date strictly after it.
+function getFirstVestDate(vestingStartDate) {
+  if (!vestingStartDate) return null;
+
+  const startYear = vestingStartDate.getFullYear();
+  for (const year of [startYear, startYear + 1]) {
+    for (const month of LTI_VEST_MONTHS) {
+      const candidate = new Date(year, month, LTI_VEST_DAY);
+      if (candidate > vestingStartDate) return candidate;
+    }
+  }
+  return null;
+}
+
+function getGrantVestDates(vestingStartDate) {
+  const firstVestDate = getFirstVestDate(vestingStartDate);
+  if (!firstVestDate) return [];
   return Array.from({ length: QUARTERS_IN_LTI_PLAN }, (_, index) => addMonths(firstVestDate, index * 3));
 }
 
@@ -443,12 +462,15 @@ function getSchedule() {
 
   grants.forEach((grant) => {
     const shares = parseShareAmount(grant.shares);
-    const firstVestDate = parseDate(grant.firstVestDate);
+    const vestingStartDate = parseDate(grant.vestingStartDate);
 
-    if (!shares || shares <= 0 || !firstVestDate) return;
+    if (!shares || shares <= 0 || !vestingStartDate) return;
+
+    const vestDates = getGrantVestDates(vestingStartDate);
+    if (vestDates.length === 0) return;
 
     const sharesPerQuarter = shares / QUARTERS_IN_LTI_PLAN;
-    getGrantVestDates(firstVestDate).forEach((date, index) => {
+    vestDates.forEach((date, index) => {
       const key = toDateKey(date);
       if (!rowsByDate.has(key)) rowsByDate.set(key, { date, total: 0, grants: [] });
 
@@ -705,11 +727,13 @@ function sanitizeSavedGrants(savedGrants) {
     .map((grant, index) => {
       if (!grant || typeof grant !== 'object') return null;
       const id = typeof grant.id === 'string' && grant.id ? grant.id : crypto.randomUUID();
+      // Older saves called this firstVestDate, but it always held the vesting start date.
+      const startDate = grant.vestingStartDate ?? grant.firstVestDate;
       return {
         id,
         label: String(grant.label || `Grant ${String.fromCharCode(65 + index)}`),
         shares: grant.shares === undefined ? '' : String(grant.shares),
-        firstVestDate: grant.firstVestDate === undefined ? '' : String(grant.firstVestDate),
+        vestingStartDate: startDate === undefined || startDate === null ? '' : String(startDate),
       };
     })
     .filter(Boolean);
@@ -1585,6 +1609,13 @@ function switchTab(targetPanelId) {
   });
 }
 
+function describeGrantVesting(vestingStartDate) {
+  const firstVestDate = getFirstVestDate(parseDate(vestingStartDate));
+  if (!firstVestDate) return 'Set a vesting start date to build the schedule.';
+  const lastVestDate = addMonths(firstVestDate, (QUARTERS_IN_LTI_PLAN - 1) * 3);
+  return `First vest ${formatDate(firstVestDate)} · through ${formatDate(lastVestDate)}`;
+}
+
 function renderGrantInputs() {
   grantList.replaceChildren();
 
@@ -1601,6 +1632,9 @@ function renderGrantInputs() {
     const card = fragment.querySelector('.grant-card');
     card.dataset.id = grant.id;
     card.querySelector('[data-action="remove"]').setAttribute('aria-label', `Remove ${grant.label || 'grant'}`);
+
+    const derived = card.querySelector('[data-role="first-vest"]');
+    derived.textContent = describeGrantVesting(grant.vestingStartDate);
 
     card.querySelectorAll('[data-field]').forEach((input) => {
       input.value = grant[input.dataset.field] || '';
@@ -1807,6 +1841,12 @@ function renderSchedule() {
 
 function updateGrant(id, field, value) {
   grants = grants.map((grant) => (grant.id === id ? { ...grant, [field]: value } : grant));
+
+  if (field === 'vestingStartDate') {
+    const derived = grantList.querySelector(`.grant-card[data-id="${id}"] [data-role="first-vest"]`);
+    if (derived) derived.textContent = describeGrantVesting(value);
+  }
+
   renderSchedule();
   scheduleSave();
 }
@@ -1856,7 +1896,7 @@ function resetManualCorrections() {
 function addGrant() {
   grants = [
     ...grants,
-    { id: crypto.randomUUID(), label: `Grant ${String.fromCharCode(65 + grants.length)}`, shares: '', firstVestDate: '' },
+    { id: crypto.randomUUID(), label: `Grant ${String.fromCharCode(65 + grants.length)}`, shares: '', vestingStartDate: '' },
   ];
   renderGrantInputs();
   renderSchedule();

@@ -41,13 +41,29 @@ Preview URLs are disabled on purpose: the Access application protects only the p
 ## What it does now
 
 - Syncs all stock, taxable-income, and 401k data through your Cloudflare account so any device you sign in from sees the same values.
-- Lets you add stock grants with a name, total shares, and first vest date.
-- Automatically creates a 4-year LTI schedule with 16 quarterly vest events for every grant, split evenly.
+- Lets you add stock grants with a name, total shares, and the **vesting start date** from your agreement.
+- Derives the vest schedule from the plan's fixed quarterly dates — Jan 30, Apr 30, Jul 30, Oct 30 — starting at the first such date strictly *after* the vesting start date, for 16 quarters.
 - Shows upcoming vests as **gross units only**. The app never estimates tax.
 - Lets you record what actually happened at each vest — net units received and the share price that day — and derives units withheld, value at vest, and what those units are worth today.
 - Rolls those actuals up into net units held, total received at vest, and remaining gross units.
 - Warns when per-grant gross corrections exceed a grant's total shares.
 - Tracks current and future taxable income and 401k contributions for J1/J2, and compares the 2026 401k total against the $24,500 yearly cap.
+
+## How vesting dates are calculated
+
+The plan vests on four fixed calendar dates each year: **Jan 30, Apr 30, Jul 30, Oct 30**.
+
+You enter the **vesting start date** from your agreement. The first vest is the next plan date *strictly after* that date — the start date itself is excluded, even when it falls on a plan date. The schedule then runs 16 quarters.
+
+```
+Vesting start 2025-04-30  ->  first vest 2025-07-30  (Apr 30 excluded)
+Vesting start 2025-10-29  ->  first vest 2025-10-30
+Vesting start 2025-12-31  ->  first vest 2026-01-30
+```
+
+Each grant card shows its derived first and last vest date so the result is verifiable without opening the schedule.
+
+Earlier versions asked for the first vest date directly and anchored the schedule on whatever was typed, which drifted off the plan calendar. Saved grants are migrated: the stored date is now read as the vesting start date.
 
 ## How vesting is recorded
 

@@ -79,7 +79,7 @@
           <div class="card-head">
             <div class="card-title">
               <h2>Grants</h2>
-              <p>Each grant vests in 16 equal quarterly instalments over 4 years.</p>
+              <p>Enter the vesting start date from your agreement. The plan vests on Jan 30, Apr 30, Jul 30, and Oct 30 — the first vest is the next of those dates <em>after</em> the start date, then 16 quarters total.</p>
             </div>
             <button class="btn btn-primary" type="button" id="add-grant">Add grant</button>
           </div>
@@ -477,9 +477,10 @@
           <input data-field="shares" type="number" min="0" placeholder="1000" />
         </label>
         <label class="field">
-          <span class="field-label">First vest date</span>
-          <input data-field="firstVestDate" type="date" />
+          <span class="field-label">Vesting start date</span>
+          <input data-field="vestingStartDate" type="date" />
         </label>
+        <p class="grant-derived" data-role="first-vest"></p>
         <button class="btn btn-ghost btn-remove" type="button" data-action="remove">Remove</button>
       </div>
     </template>

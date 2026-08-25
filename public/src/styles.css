@@ -556,6 +556,15 @@ select {
 
 .btn-remove {
   color: var(--text-faint);
+  justify-self: end;
+}
+
+.grant-derived {
+  grid-column: 1 / -2;
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .btn-remove:hover {
@@ -1085,6 +1094,14 @@ select {
 @media (max-width: 560px) {
   .grant-card {
     grid-template-columns: 1fr;
+  }
+
+  .grant-derived {
+    grid-column: 1;
+  }
+
+  .btn-remove {
+    justify-self: stretch;
   }
 
   .progress-card {

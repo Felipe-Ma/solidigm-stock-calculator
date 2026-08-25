@@ -7,17 +7,17 @@
       "id": "grant-a",
       "label": "Grant A",
       "shares": "1200",
-      "firstVestDate": "2025-01-30"
+      "vestingStartDate": "2025-01-30"
     },
     {
       "id": "grant-b",
       "label": "Grant B",
       "shares": "800",
-      "firstVestDate": "2025-04-30"
+      "vestingStartDate": "2025-04-30"
     }
   ],
   "grantGrossOverrides": {},
-  "netUnitOverrides": {},
+  "vestActuals": {},
   "incomeBaselines": {
     "J1": "",
     "J2": ""
