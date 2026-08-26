@@ -410,6 +410,25 @@ function formatDate(date) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
 }
 
+// Vesting agreements round the cumulative vested total at each tranche, so remainders alternate rather than
+// accumulating. Integer arithmetic keeps exact .5 boundaries deterministic instead of leaving them to floating point.
+function roundHalfUpDivision(numerator, denominator) {
+  return Math.floor((2 * numerator + denominator) / (2 * denominator));
+}
+
+function allocateTranches(totalShares, trancheCount) {
+  const total = parseWholeShareAmount(totalShares);
+  const count = Math.max(Math.round(trancheCount), 1);
+
+  let previousCumulative = 0;
+  return Array.from({ length: count }, (_, index) => {
+    const cumulative = roundHalfUpDivision(total * (index + 1), count);
+    const amount = cumulative - previousCumulative;
+    previousCumulative = cumulative;
+    return amount;
+  });
+}
+
 function formatShares(value) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
 }
@@ -451,22 +470,6 @@ function parseWholeShareAmount(value) {
 
 function toGrantOverrideKey(grantId, vestNumber) {
   return `${grantId}:${vestNumber}`;
-}
-
-// Vesting agreements floor the cumulative vested total at each tranche, so fractional remainders roll forward
-// rather than being handed to whichever tranche has the largest remainder.
-function distributeWholeShares(entries, sharesToDistribute) {
-  const targetTotal = parseWholeShareAmount(sharesToDistribute);
-  const ordered = [...entries].sort((a, b) => a.trancheNumber - b.trancheNumber);
-
-  if (ordered.length === 0) return;
-
-  let previousCumulative = 0;
-  ordered.forEach((entry, index) => {
-    const cumulative = Math.floor((targetTotal * (index + 1)) / ordered.length);
-    entry.amount = cumulative - previousCumulative;
-    previousCumulative = cumulative;
-  });
 }
 
 function startOfToday() {
@@ -521,7 +524,7 @@ function getGrantTranches(grant) {
   if (!firstVestDate) return [];
 
   const installments = getGrantInstallments(grant);
-  const sharesPerTranche = shares / installments;
+  const amounts = allocateTranches(shares, installments);
 
   return Array.from({ length: installments }, (_, index) => {
     const scheduledDate = addMonths(firstVestDate, index * 3);
@@ -532,7 +535,7 @@ function getGrantTranches(grant) {
       scheduledDate,
       vestDate: isCaughtUp ? grantDate : scheduledDate,
       isCaughtUp,
-      amount: sharesPerTranche,
+      amount: amounts[index],
     };
   });
 }
@@ -604,17 +607,8 @@ function getAdjustedSchedule(schedule) {
   });
 
   entriesByGrant.forEach(({ totalShares, entries }) => {
-    const lockedTotal = entries
-      .filter((entry) => entry.isLocked)
-      .reduce((sum, entry) => sum + entry.amount, 0);
-    const unlockedEntries = entries.filter((entry) => !entry.isLocked);
-    const unlockedCalculatedTotal = unlockedEntries.reduce((sum, entry) => sum + entry.calculatedAmount, 0);
-    const sharesToDistribute = Math.max(totalShares - lockedTotal, 0);
-
-    if (unlockedEntries.length > 0 && unlockedCalculatedTotal > 0) {
-      distributeWholeShares(unlockedEntries, sharesToDistribute);
-    }
-
+    // A manual correction replaces that tranche only; the rest keep their allocated size so the
+    // schedule stays reproducible instead of shifting every other tranche.
     let vestedToDate = 0;
     entries
       .sort((a, b) => a.trancheNumber - b.trancheNumber)

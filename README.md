@@ -120,13 +120,22 @@ The timeline shows `Owned after` on every row, so you can walk down it against a
 
 ## Share rounding
 
-Tranche sizes floor the *cumulative* vested total rather than rounding each tranche independently:
+Grant totals rarely divide evenly into whole shares, so tranche sizes come from rounding the *cumulative* vested total at each tranche, half-up:
 
 ```
-tranche n = floor(total x n / installments) - floor(total x (n-1) / installments)
+cumulative(n) = roundHalfUp(total x n / trancheCount)
+tranche(n)    = cumulative(n) - cumulative(n-1)
 ```
 
-For a 4,312-share grant over 16 tranches that gives 269 then 270, so a two-tranche catch-up event is **539** shares. Rounding each tranche independently would front-load the remainder and produce 540. The tranche amounts always sum back to the grant total exactly.
+The rounding uses integer arithmetic — `floor((2·a + b) / (2·b))` — so totals landing exactly on `.5` are deterministic rather than subject to floating-point drift. A 4,344-share grant over 16 tranches sits on `.5` at every odd tranche, and this reproduces the broker's `272, 271, 272, 271…` rather than inverting it.
+
+Tranche amounts always sum back to the grant total exactly.
+
+Allocation and grouping are separate steps: tranche sizes are computed first from the grant total, then the vest-date and catch-up rules decide which tranches share a vesting event. A manual "correct gross" entry replaces only that tranche — the others keep their allocated size so the schedule stays reproducible.
+
+One-off grants that vest in full bypass the allocator entirely; their single tranche is the whole award.
+
+Never infer a grant total from an individual tranche size — several different totals can produce the same tranche.
 
 Earlier versions estimated post-tax units with a fixed 41.5% rate. Any saved post-tax corrections from that model are migrated automatically into recorded net units on first load.
 
