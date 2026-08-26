@@ -1049,6 +1049,51 @@ select {
   color: var(--text-muted);
 }
 
+.data-table td.num,
+.data-table th.num {
+  text-align: right;
+}
+
+.ledger-table .owned-cell {
+  font-weight: 650;
+}
+
+.data-table tr.is-error {
+  background: var(--danger-soft);
+}
+
+.data-table tr.is-warning {
+  background: var(--warning-soft);
+}
+
+.row-detail {
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.row-flag {
+  color: var(--warning);
+  font-size: 11.5px;
+}
+
+.row-error {
+  color: var(--danger);
+  font-size: 11.5px;
+}
+
+.field-check {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.field-check input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .pill {
   display: inline-block;
   font-size: 11px;

@@ -8,10 +8,19 @@ const DEFAULT_INSTALLMENTS = 16;
 // The plan vests on fixed calendar dates: Jan 30, Apr 30, Jul 30, Oct 30.
 const LTI_VEST_MONTHS = [0, 3, 6, 9];
 const LTI_VEST_DAY = 30;
-const GRANT_CATEGORIES = ['LTI', 'NH', 'Other'];
+const GRANT_CATEGORIES = ['LTI', 'NH', 'Special', 'Other'];
+const TRANSACTION_TYPES = {
+  'cash-out': { label: 'Cash-out', direction: -1, requiresPrice: true },
+  sale: { label: 'Sale', direction: -1, requiresPrice: true },
+  purchase: { label: 'Purchase', direction: 1, requiresPrice: true },
+  'transfer-in': { label: 'Transfer in', direction: 1, requiresPrice: false },
+  'transfer-out': { label: 'Transfer out', direction: -1, requiresPrice: false },
+};
 const STOCK_PRICE_KEY = 'stockPrice';
 const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
 const VEST_ACTUALS_KEY = 'vestActuals';
+const TRANSACTIONS_KEY = 'shareTransactions';
+const APPLIED_SEEDS_KEY = 'appliedSeeds';
 const TAXABLE_INCOME_INPUT_KEY = 'taxableIncomeInput';
 const TAXABLE_INCOME_ENTRIES_KEY = 'taxableIncomeEntries';
 const INCOME_BASELINES_KEY = 'incomeBaselines';
@@ -63,6 +72,8 @@ let saveTimer;
 let stockPrice = 0;
 let grantGrossOverrides = {};
 let vestActuals = {};
+let shareTransactions = [];
+let appliedSeeds = [];
 let taxableIncomeEntries = [];
 let taxableIncomeDraftInput = '';
 let incomeBaselines = { J1: '', J2: '' };
@@ -85,6 +96,22 @@ const futureValue = document.querySelector('#future-value');
 const stockPriceInput = document.querySelector('#stock-price');
 const nextVestCaption = document.querySelector('#next-vest-caption');
 const realizedValue = document.querySelector('#realized-value');
+const ledgerOwned = document.querySelector('#ledger-owned');
+const ledgerOwnedValue = document.querySelector('#ledger-owned-value');
+const ledgerUnvested = document.querySelector('#ledger-unvested');
+const ledgerGrossVested = document.querySelector('#ledger-gross-vested');
+const ledgerCash = document.querySelector('#ledger-cash');
+const ledgerCashNote = document.querySelector('#ledger-cash-note');
+const ledgerWarnings = document.querySelector('#ledger-warnings');
+const ledgerTable = document.querySelector('#ledger-table');
+const transactionForm = document.querySelector('#transaction-form');
+const transactionDateInput = document.querySelector('#transaction-date');
+const transactionTypeInput = document.querySelector('#transaction-type');
+const transactionSharesInput = document.querySelector('#transaction-shares');
+const transactionPriceInput = document.querySelector('#transaction-price');
+const transactionPriceLabel = document.querySelector('#transaction-price-label');
+const transactionNoteInput = document.querySelector('#transaction-note');
+const transactionStatus = document.querySelector('#transaction-status');
 const grantTemplate = document.querySelector('#grant-template');
 const addGrantButton = document.querySelector('#add-grant');
 const copyAppStateJsonButton = document.querySelector('#copy-app-state-json');
@@ -268,6 +295,20 @@ function saveVestActuals() {
   });
 }
 
+function saveShareTransactions() {
+  syncToCloud();
+  if (!database) return;
+  writeMetadata(TRANSACTIONS_KEY, shareTransactions).catch(() => {
+    databaseStatus.textContent = 'Could not cache share transactions on this device.';
+  });
+}
+
+function saveAppliedSeeds() {
+  syncToCloud();
+  if (!database) return;
+  writeMetadata(APPLIED_SEEDS_KEY, appliedSeeds).catch(() => {});
+}
+
 function saveTaxableIncomeEntries() {
   syncToCloud();
   if (!database) return;
@@ -393,9 +434,10 @@ function getVestActual(dateKey) {
 
   const netUnits = actual.netUnits === '' || actual.netUnits === undefined ? null : parseShareAmount(actual.netUnits);
   const price = actual.price === '' || actual.price === undefined ? null : parseCurrencyAmount(actual.price);
-  if (netUnits === null && price === null) return null;
+  const settlementDate = actual.settlementDate ? parseDate(actual.settlementDate) : null;
+  if (netUnits === null && price === null && !settlementDate) return null;
 
-  return { netUnits, price, raw: actual };
+  return { netUnits, price, settlementDate, raw: actual };
 }
 
 function isVestRecorded(dateKey) {
@@ -458,7 +500,22 @@ function getGrantTranches(grant) {
   const vestingStartDate = parseDate(grant.vestingStartDate);
   const grantDate = parseDate(grant.grantDate);
 
-  if (!shares || shares <= 0 || !vestingStartDate) return [];
+  if (!shares || shares <= 0) return [];
+
+  // One-off awards vest in full on the grant date rather than following the quarterly calendar.
+  if (grant.vestsImmediately) {
+    if (!grantDate) return [];
+    return [{
+      trancheNumber: 1,
+      installments: 1,
+      scheduledDate: grantDate,
+      vestDate: grantDate,
+      isCaughtUp: false,
+      amount: shares,
+    }];
+  }
+
+  if (!vestingStartDate) return [];
 
   const firstVestDate = getFirstVestDate(vestingStartDate);
   if (!firstVestDate) return [];
@@ -487,8 +544,10 @@ function getSchedule() {
     const shares = parseShareAmount(grant.shares);
 
     getGrantTranches(grant).forEach((tranche) => {
-      const key = toDateKey(tranche.vestDate);
-      if (!rowsByDate.has(key)) rowsByDate.set(key, { date: tranche.vestDate, total: 0, tranches: [] });
+      const dateKey = toDateKey(tranche.vestDate);
+      // One-off awards are recorded separately so their actuals are not merged with regular vests on the same date.
+      const key = grant.vestsImmediately ? `${dateKey}::${grant.id}` : dateKey;
+      if (!rowsByDate.has(key)) rowsByDate.set(key, { date: tranche.vestDate, actualsKey: key, total: 0, tranches: [] });
 
       const row = rowsByDate.get(key);
       row.total += tranche.amount;
@@ -503,6 +562,7 @@ function getSchedule() {
         installments: tranche.installments,
         scheduledDate: tranche.scheduledDate,
         isCaughtUp: tranche.isCaughtUp,
+        vestsImmediately: Boolean(grant.vestsImmediately),
       });
     });
   });
@@ -571,7 +631,7 @@ function getAdjustedSchedule(schedule) {
 
   adjustedSchedule.forEach((row) => {
     row.total = row.tranches.reduce((sum, tranche) => sum + tranche.amount, 0);
-    row.actual = getVestActual(toDateKey(row.date));
+    row.actual = getVestActual(row.actualsKey);
     row.isRecorded = Boolean(row.actual && row.actual.netUnits !== null);
     row.netUnits = row.isRecorded ? row.actual.netUnits : null;
     row.vestPrice = row.actual && row.actual.price !== null ? row.actual.price : null;
@@ -581,6 +641,8 @@ function getAdjustedSchedule(schedule) {
     row.grossVestValue = hasValues ? row.total * row.vestPrice : null;
     row.withheldValue = hasValues ? row.withheldUnits * row.vestPrice : null;
     row.receivedValue = hasValues ? row.netUnits * row.vestPrice : null;
+    row.settlementDate = row.actual?.settlementDate || row.date;
+    row.isImmediate = row.tranches.every((tranche) => tranche.vestsImmediately);
   });
 
   return adjustedSchedule;
@@ -764,9 +826,33 @@ function sanitizeSavedGrants(savedGrants) {
         installments: grant.installments === undefined || grant.installments === null || grant.installments === ''
           ? String(DEFAULT_INSTALLMENTS)
           : String(grant.installments),
+        vestsImmediately: Boolean(grant.vestsImmediately),
       };
     })
     .filter(Boolean);
+}
+
+function sanitizeSavedTransactions(savedTransactions) {
+  if (!Array.isArray(savedTransactions)) return [];
+
+  return savedTransactions
+    .map((transaction) => {
+      if (!transaction || typeof transaction !== 'object') return null;
+      const type = TRANSACTION_TYPES[transaction.type] ? transaction.type : null;
+      const dateKey = transaction.dateKey ? String(transaction.dateKey) : '';
+      if (!type || !parseDate(dateKey)) return null;
+
+      return {
+        id: typeof transaction.id === 'string' && transaction.id ? transaction.id : crypto.randomUUID(),
+        dateKey,
+        type,
+        shares: String(transaction.shares ?? ''),
+        price: String(transaction.price ?? ''),
+        note: String(transaction.note ?? ''),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => parseDate(a.dateKey) - parseDate(b.dateKey));
 }
 
 function getAppStateData() {
@@ -777,6 +863,8 @@ function getAppStateData() {
     grants: sanitizeSavedGrants(grants),
     grantGrossOverrides,
     vestActuals,
+    shareTransactions: sanitizeSavedTransactions(shareTransactions),
+    appliedSeeds,
     incomeBaselines,
     paycheckSchedule2026: PAYCHECK_SCHEDULE_2026,
     taxableIncomeEntries: sanitizeSavedIncomeEntries(taxableIncomeEntries),
@@ -1674,9 +1762,15 @@ function renderGrantInputs() {
     derived.textContent = describeGrantVesting(grant);
 
     card.querySelectorAll('[data-field]').forEach((input) => {
-      input.value = grant[input.dataset.field] || '';
+      const field = input.dataset.field;
+      if (input.type === 'checkbox') {
+        input.checked = Boolean(grant[field]);
+        input.addEventListener('change', (event) => updateGrant(grant.id, field, event.target.checked));
+        return;
+      }
+      input.value = grant[field] || '';
       input.addEventListener('input', (event) => {
-        updateGrant(grant.id, event.target.dataset.field, event.target.value);
+        updateGrant(grant.id, field, event.target.value);
       });
     });
 
@@ -1717,6 +1811,240 @@ function describeEventTranches(row) {
   }
 
   return `${row.tranches.length} tranches from ${byGrant.size} grants`;
+}
+
+function getTransactionCash(transaction) {
+  const info = TRANSACTION_TYPES[transaction.type];
+  const price = transaction.price === '' ? null : parseCurrencyAmount(transaction.price);
+  if (price === null) return null;
+  // Shares leaving the account generate cash; shares arriving consume it.
+  return parseShareAmount(transaction.shares) * price * -info.direction;
+}
+
+// Owned shares move on settlement, vesting progress moves on the vest date, so one vest can produce two rows.
+function getLedger() {
+  const schedule = getAdjustedSchedule(getSchedule());
+  const today = startOfToday();
+  const events = [];
+
+  schedule.forEach((row) => {
+    const vestDateKey = toDateKey(row.date);
+    const settlementDate = row.settlementDate;
+    const settlesLater = toDateKey(settlementDate) !== vestDateKey;
+    const hasVested = row.date <= today;
+    const label = row.isImmediate ? 'Special RSU vest' : 'RSU vest';
+
+    events.push({
+      date: row.date,
+      rank: 0,
+      type: label,
+      detail: describeEventTranches(row),
+      grossShares: row.total,
+      withheldShares: row.isRecorded ? row.withheldUnits : null,
+      netShares: settlesLater ? null : (row.isRecorded ? row.netUnits : null),
+      cash: null,
+      grossVestedDelta: hasVested ? row.total : 0,
+      ownedDelta: settlesLater ? 0 : (row.isRecorded ? row.netUnits : 0),
+      isFuture: !hasVested,
+      missingActuals: hasVested && !row.isRecorded,
+      netExceedsGross: row.isRecorded && row.netUnits > row.total + 0.0001,
+      vestDateKey,
+    });
+
+    if (settlesLater && row.isRecorded) {
+      events.push({
+        date: settlementDate,
+        rank: 1,
+        type: 'RSU settlement',
+        detail: `Delivery of ${formatDate(row.date)} vest`,
+        grossShares: null,
+        withheldShares: null,
+        netShares: row.netUnits,
+        cash: null,
+        grossVestedDelta: 0,
+        ownedDelta: row.netUnits,
+        isFuture: settlementDate > today,
+        missingActuals: false,
+        vestDateKey,
+      });
+    }
+  });
+
+  shareTransactions.forEach((transaction) => {
+    const info = TRANSACTION_TYPES[transaction.type];
+    const shares = parseShareAmount(transaction.shares);
+    const signedShares = shares * info.direction;
+
+    events.push({
+      date: parseDate(transaction.dateKey),
+      rank: 2,
+      type: info.label,
+      detail: transaction.note || '',
+      grossShares: null,
+      withheldShares: null,
+      netShares: signedShares,
+      cash: getTransactionCash(transaction),
+      grossVestedDelta: 0,
+      ownedDelta: signedShares,
+      isFuture: parseDate(transaction.dateKey) > today,
+      missingActuals: false,
+      transactionId: transaction.id,
+    });
+  });
+
+  events.sort((a, b) => a.date - b.date || a.rank - b.rank);
+
+  let owned = 0;
+  let grossVested = 0;
+  events.forEach((event) => {
+    event.ownedBefore = owned;
+    owned += event.ownedDelta;
+    grossVested += event.grossVestedDelta;
+    event.ownedAfter = owned;
+    event.grossVestedAfter = grossVested;
+    event.shortBy = event.ownedDelta < 0 && -event.ownedDelta > event.ownedBefore + 0.0001
+      ? -event.ownedDelta - event.ownedBefore
+      : 0;
+  });
+
+  return events;
+}
+
+function getLedgerSummary(ledger) {
+  const settled = ledger.filter((event) => !event.isFuture);
+  const owned = settled.length > 0 ? settled[settled.length - 1].ownedAfter : 0;
+  const grossVested = settled.length > 0 ? settled[settled.length - 1].grossVestedAfter : 0;
+  const totalGross = ledger.reduce((sum, event) => sum + (event.grossShares ?? 0), 0);
+
+  const cashGenerated = ledger.reduce((sum, event) => sum + Math.max(event.cash ?? 0, 0), 0);
+  const cashUsed = ledger.reduce((sum, event) => sum + Math.min(event.cash ?? 0, 0), 0);
+
+  return {
+    owned,
+    grossVested,
+    unvested: Math.max(totalGross - grossVested, 0),
+    cashGenerated,
+    cashReinvested: -cashUsed,
+    cashRemaining: cashGenerated + cashUsed,
+    missingActuals: settled.filter((event) => event.missingActuals),
+    netExceedsGross: ledger.filter((event) => event.netExceedsGross),
+    shortfalls: ledger.filter((event) => event.shortBy > 0),
+  };
+}
+
+function formatSignedShares(value) {
+  if (value === null || value === undefined) return '—';
+  const sign = value > 0 ? '+' : value < 0 ? '−' : '';
+  return `${sign}${formatShares(Math.abs(value))}`;
+}
+
+function renderLedger(message) {
+  const ledger = getLedger();
+  const summary = getLedgerSummary(ledger);
+
+  ledgerOwned.textContent = formatShares(summary.owned);
+  ledgerOwnedValue.textContent = `${formatCurrency(summary.owned * stockPrice)} at today's price`;
+  ledgerUnvested.textContent = formatShares(summary.unvested);
+  ledgerGrossVested.textContent = formatShares(summary.grossVested);
+  ledgerCash.textContent = formatCurrency(summary.cashGenerated);
+  ledgerCashNote.textContent = summary.cashGenerated > 0
+    ? `${formatCurrency(summary.cashReinvested)} reinvested · ${formatCurrency(summary.cashRemaining)} not reinvested`
+    : 'No corporate events recorded';
+
+  const warnings = [];
+  summary.shortfalls.forEach((event) => {
+    warnings.push(`${formatDate(event.date)} ${event.type.toLowerCase()} removes ${formatShares(-event.ownedDelta)} shares but only ${formatShares(event.ownedBefore)} were recorded as owned — the earlier net vest history is short by ${formatShares(event.shortBy)}.`);
+  });
+  if (summary.missingActuals.length > 0) {
+    warnings.push(`${summary.missingActuals.length} past vest${summary.missingActuals.length === 1 ? '' : 's'} have no recorded actuals, so their net shares are missing from the balance: ${summary.missingActuals.map((event) => formatDate(event.date)).join(', ')}.`);
+  }
+  summary.netExceedsGross.forEach((event) => {
+    warnings.push(`${formatDate(event.date)} records ${formatShares(event.netShares ?? 0)} net shares against only ${formatShares(event.grossShares)} gross — check the grant's share count or the recorded net figure.`);
+  });
+
+  ledgerWarnings.innerHTML = warnings.length === 0
+    ? ''
+    : warnings.map((text) => `<p class="schedule-warning" role="alert">${escapeHtml(text)}</p>`).join('');
+
+  ledgerTable.innerHTML = ledger.length === 0
+    ? '<tr><td colspan="9" class="table-empty">No events yet. Add grants on the Vesting tab or a transaction above.</td></tr>'
+    : ledger.map((event) => {
+      const classes = [
+        event.isFuture ? 'is-future' : '',
+        event.shortBy > 0 ? 'is-error' : '',
+        event.missingActuals ? 'is-warning' : '',
+      ].filter(Boolean).join(' ');
+
+      return `
+        <tr class="${classes}">
+          <td><time datetime="${toDateKey(event.date)}">${formatDate(event.date)}</time></td>
+          <td>
+            ${escapeHtml(event.type)}
+            ${event.detail ? `<br><small class="row-detail">${escapeHtml(event.detail)}</small>` : ''}
+            ${event.missingActuals ? '<br><small class="row-flag">actuals not recorded</small>' : ''}
+            ${event.shortBy > 0 ? '<br><small class="row-error">exceeds recorded balance</small>' : ''}
+          </td>
+          <td class="num">${event.grossShares === null ? '—' : formatShares(event.grossShares)}</td>
+          <td class="num">${event.withheldShares === null ? '—' : formatShares(event.withheldShares)}</td>
+          <td class="num">${formatSignedShares(event.netShares)}</td>
+          <td class="num">${event.cash === null ? '—' : formatCurrency(event.cash)}</td>
+          <td class="num">${formatShares(event.grossVestedAfter)}</td>
+          <td class="num owned-cell">${formatShares(event.ownedAfter)}</td>
+          <td>${event.transactionId ? `<button class="text-button" type="button" data-action="remove-transaction" data-transaction-id="${event.transactionId}">Remove</button>` : ''}</td>
+        </tr>
+      `;
+    }).join('');
+
+  if (message) transactionStatus.textContent = message;
+}
+
+function addShareTransaction(event) {
+  event.preventDefault();
+  const date = parseDate(transactionDateInput.value);
+  const shares = parseShareAmount(transactionSharesInput.value);
+  const type = transactionTypeInput.value;
+  const info = TRANSACTION_TYPES[type];
+  const priceValue = transactionPriceInput.value.trim();
+
+  if (!date || !shares || shares <= 0) {
+    renderLedger('Enter a valid date and share count.');
+    return;
+  }
+  if (info.requiresPrice && priceValue === '') {
+    renderLedger(`${info.label} needs a price per share so the proceeds can be recorded.`);
+    return;
+  }
+
+  shareTransactions = sanitizeSavedTransactions([
+    ...shareTransactions,
+    {
+      id: crypto.randomUUID(),
+      dateKey: toDateKey(date),
+      type,
+      shares: String(shares),
+      price: priceValue,
+      note: transactionNoteInput.value.trim(),
+    },
+  ]);
+
+  transactionForm.reset();
+  transactionTypeInput.value = type;
+  renderLedger(`Added ${info.label.toLowerCase()} of ${formatShares(shares)} shares.`);
+  renderSchedule();
+  saveShareTransactions();
+}
+
+function removeShareTransaction(id) {
+  shareTransactions = shareTransactions.filter((transaction) => transaction.id !== id);
+  renderLedger('Removed transaction.');
+  renderSchedule();
+  saveShareTransactions();
+}
+
+function updateTransactionPriceLabel() {
+  const info = TRANSACTION_TYPES[transactionTypeInput.value];
+  transactionPriceLabel.textContent = info.requiresPrice ? 'Price per share' : 'Price per share (optional)';
+  transactionPriceInput.required = info.requiresPrice;
 }
 
 function renderSchedule() {
@@ -1773,15 +2101,16 @@ function renderSchedule() {
     scheduleGrid.append(warning);
   }
 
-  const dueDateKey = dueRow ? toDateKey(dueRow.date) : null;
-  const nextDateKey = nextRow ? toDateKey(nextRow.date) : null;
+  const dueDateKey = dueRow ? dueRow.actualsKey : null;
+  const nextDateKey = nextRow ? nextRow.actualsKey : null;
 
   const list = document.createElement('div');
   list.className = 'schedule-grid';
   list.innerHTML = schedule.map((row, index) => {
     const dateKey = toDateKey(row.date);
-    const isDue = dateKey === dueDateKey;
-    const isNext = dateKey === nextDateKey;
+    const actualsKey = row.actualsKey;
+    const isDue = actualsKey === dueDateKey;
+    const isNext = actualsKey === nextDateKey;
     const canRecord = row.date <= today || row.isRecorded;
 
     const state = row.isRecorded ? 'is-recorded' : isDue ? 'is-due' : isNext ? 'is-next' : '';
@@ -1847,7 +2176,7 @@ function renderSchedule() {
             <span class="field-label">Net units received</span>
             <input
               data-action="vest-net-units"
-              data-date-key="${dateKey}"
+              data-date-key="${actualsKey}"
               type="number"
               step="0.0001"
               min="0"
@@ -1859,12 +2188,21 @@ function renderSchedule() {
             <span class="field-label">Share price at vest</span>
             <input
               data-action="vest-price"
-              data-date-key="${dateKey}"
+              data-date-key="${actualsKey}"
               type="number"
               step="0.01"
               min="0"
               placeholder="0.00"
               value="${escapeHtml(String(row.actual?.raw?.price ?? ''))}"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label">Settlement date</span>
+            <input
+              data-action="vest-settlement"
+              data-date-key="${actualsKey}"
+              type="date"
+              value="${escapeHtml(String(row.actual?.raw?.settlementDate ?? ''))}"
             />
           </label>
         </div>
@@ -1924,6 +2262,7 @@ function renderSchedule() {
   }).join('');
 
   scheduleGrid.append(list);
+  renderLedger();
 }
 
 function updateGrant(id, field, value) {
@@ -2045,6 +2384,58 @@ function migrateNetUnitOverrides(overrides) {
   );
 }
 
+// One-time load of the 2026 cash-out, reinvestment, and Special RSU award.
+const CORPORATE_EVENTS_2026_SEED = 'corporate-events-2026';
+
+function applyCorporateEvents2026Seed() {
+  if (appliedSeeds.includes(CORPORATE_EVENTS_2026_SEED)) return false;
+
+  shareTransactions = sanitizeSavedTransactions([
+    ...shareTransactions,
+    {
+      id: 'txn-cash-out-2026-03-01',
+      dateKey: '2026-03-01',
+      type: 'cash-out',
+      shares: '1270',
+      price: '6.35',
+      note: 'Corporate event cash-out',
+    },
+    {
+      id: 'txn-purchase-2026-04-01',
+      dateKey: '2026-04-01',
+      type: 'purchase',
+      shares: '1016',
+      price: '6.35',
+      note: 'Reinvestment of 80% of proceeds',
+    },
+  ]);
+
+  if (!grants.some((grant) => grant.id === 'grant-special-rsu-2026')) {
+    grants = [
+      ...grants,
+      {
+        id: 'grant-special-rsu-2026',
+        label: '2026-04-30 Special RSU-2026',
+        category: 'Special',
+        shares: '457',
+        grantDate: '2026-04-30',
+        vestingStartDate: '',
+        installments: '1',
+        vestsImmediately: true,
+      },
+    ];
+  }
+
+  vestActuals = {
+    ...vestActuals,
+'2026-04-30::grant-special-rsu-2026': { netUnits: '268', price: '6.35', settlementDate: '2026-05-01' },
+    '2025-04-30': { ...(vestActuals['2025-04-30'] || {}), netUnits: '317' },
+  };
+
+  appliedSeeds = [...appliedSeeds, CORPORATE_EVENTS_2026_SEED];
+  return true;
+}
+
 async function initializeApp() {
   database = await openDatabase();
   const cloud = await loadCloudState();
@@ -2053,6 +2444,8 @@ async function initializeApp() {
   const savedStockPrice = cloudState ? cloudState.stockPrice : await readMetadata(STOCK_PRICE_KEY);
   const savedGrantGrossOverrides = cloudState ? cloudState.grantGrossOverrides : await readMetadata(GRANT_GROSS_OVERRIDES_KEY);
   const savedVestActuals = cloudState ? cloudState.vestActuals : await readMetadata(VEST_ACTUALS_KEY);
+  const savedTransactions = cloudState ? cloudState.shareTransactions : await readMetadata(TRANSACTIONS_KEY);
+  const savedSeeds = cloudState ? cloudState.appliedSeeds : await readMetadata(APPLIED_SEEDS_KEY);
   const legacyNetOverrides = cloudState ? cloudState.netUnitOverrides : await readMetadata('netUnitOverrides');
   const savedTaxableIncomeInput = await readMetadata(TAXABLE_INCOME_INPUT_KEY);
   const savedTaxableIncomeEntries = cloudState ? cloudState.taxableIncomeEntries : await readMetadata(TAXABLE_INCOME_ENTRIES_KEY);
@@ -2143,17 +2536,32 @@ async function initializeApp() {
         : 'starter defaults';
   databaseStatus.textContent = `Loaded ${grants.length} grant${grants.length === 1 ? '' : 's'} from ${sourceLabel}.`;
   addGrantButton.disabled = false;
+
+  shareTransactions = sanitizeSavedTransactions(savedTransactions || codeAppStateData?.shareTransactions || []);
+  appliedSeeds = Array.isArray(savedSeeds) ? savedSeeds : (codeAppStateData?.appliedSeeds || []);
+  const seeded = applyCorporateEvents2026Seed();
+  if (seeded) {
+    await saveGrantsNow();
+    await writeMetadata(TRANSACTIONS_KEY, shareTransactions).catch(() => {});
+    await writeMetadata(VEST_ACTUALS_KEY, vestActuals).catch(() => {});
+    await writeMetadata(APPLIED_SEEDS_KEY, appliedSeeds).catch(() => {});
+  }
+
+  updateTransactionPriceLabel();
   renderGrantInputs();
   renderSchedule();
+  renderLedger();
   renderTaxableIncome();
   renderRetirementContributions();
 
   if (cloud.available) {
     cloudSyncReady = true;
-    if (cloudState) {
+    if (cloudState && !seeded) {
       cloudStatus.textContent = `Synced with your Cloudflare account${cloud.email ? ` as ${cloud.email}` : ''}.`;
     } else {
-      cloudStatus.textContent = 'Uploading this device\u2019s data to your Cloudflare account\u2026';
+      cloudStatus.textContent = seeded
+        ? 'Added the 2026 corporate events and syncing\u2026'
+        : 'Uploading this device\u2019s data to your Cloudflare account\u2026';
       queueCloudSave(getAppStateData());
     }
   }
@@ -2230,6 +2638,9 @@ scheduleGrid.addEventListener('change', (event) => {
   if (event.target.dataset.action === 'vest-price') {
     updateVestActual(event.target.dataset.dateKey, 'price', event.target.value);
   }
+  if (event.target.dataset.action === 'vest-settlement') {
+    updateVestActual(event.target.dataset.dateKey, 'settlementDate', event.target.value);
+  }
 });
 document.querySelector('#income-panel').addEventListener('click', (event) => {
   if (event.target.dataset.action === 'remove-income-entry') {
@@ -2258,6 +2669,14 @@ document.querySelector('#retirement-panel').addEventListener('click', (event) =>
 });
 onCloudStatus(({ message }) => {
   cloudStatus.textContent = message;
+});
+
+transactionForm.addEventListener('submit', addShareTransaction);
+transactionTypeInput.addEventListener('change', updateTransactionPriceLabel);
+document.querySelector('#ledger-panel').addEventListener('click', (event) => {
+  if (event.target.dataset.action === 'remove-transaction') {
+    removeShareTransaction(event.target.dataset.transactionId);
+  }
 });
 
 window.addEventListener('pagehide', () => {

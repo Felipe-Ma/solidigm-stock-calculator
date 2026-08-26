@@ -37,6 +37,7 @@
     <main class="app-shell">
       <nav class="tab-list" role="tablist" aria-label="Sections">
         <button class="tab-button is-active" type="button" id="stock-tab" role="tab" aria-selected="true" aria-controls="stock-panel" data-tab-target="stock-panel">Vesting</button>
+        <button class="tab-button" type="button" id="ledger-tab" role="tab" aria-selected="false" aria-controls="ledger-panel" data-tab-target="ledger-panel">Share ledger</button>
         <button class="tab-button" type="button" id="income-tab" role="tab" aria-selected="false" aria-controls="income-panel" data-tab-target="income-panel">Taxable income</button>
         <button class="tab-button" type="button" id="retirement-tab" role="tab" aria-selected="false" aria-controls="retirement-panel" data-tab-target="retirement-panel">401k</button>
       </nav>
@@ -105,6 +106,99 @@
             <button class="btn btn-ghost" type="button" id="download-app-state-json">Download backup</button>
           </div>
         </details>
+      </div>
+
+      <div class="tab-panel" id="ledger-panel" role="tabpanel" aria-labelledby="ledger-tab" hidden>
+        <section class="stat-strip" aria-label="Share balance summary">
+          <article class="stat stat-accent">
+            <span class="stat-label">Shares owned today</span>
+            <strong class="stat-value" id="ledger-owned">0</strong>
+            <small class="stat-note" id="ledger-owned-value">$0 at today's price</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Unvested RSUs</span>
+            <strong class="stat-value" id="ledger-unvested">0</strong>
+            <small class="stat-note">Gross, not yet vested</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Gross RSUs vested</span>
+            <strong class="stat-value" id="ledger-gross-vested">0</strong>
+            <small class="stat-note">Cumulative vesting progress</small>
+          </article>
+          <article class="stat">
+            <span class="stat-label">Cash from corporate events</span>
+            <strong class="stat-value" id="ledger-cash">$0</strong>
+            <small class="stat-note" id="ledger-cash-note">No corporate events recorded</small>
+          </article>
+        </section>
+
+        <div id="ledger-warnings"></div>
+
+        <section class="card" aria-label="Add a share transaction">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>Add a transaction</h2>
+              <p>Cash-outs, sales, purchases, and transfers. RSU vests come from the Vesting tab automatically.</p>
+            </div>
+          </div>
+          <form class="entry-form" id="transaction-form">
+            <label class="field">
+              <span class="field-label">Date</span>
+              <input id="transaction-date" type="date" required />
+            </label>
+            <label class="field">
+              <span class="field-label">Event type</span>
+              <select id="transaction-type">
+                <option value="cash-out">Cash-out</option>
+                <option value="sale">Sale</option>
+                <option value="purchase">Purchase</option>
+                <option value="transfer-in">Transfer in</option>
+                <option value="transfer-out">Transfer out</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Shares</span>
+              <input id="transaction-shares" type="number" min="0" step="0.0001" placeholder="0" required />
+            </label>
+            <label class="field">
+              <span class="field-label" id="transaction-price-label">Price per share</span>
+              <input id="transaction-price" type="number" min="0" step="0.01" placeholder="0.00" />
+            </label>
+            <label class="field">
+              <span class="field-label">Note</span>
+              <input id="transaction-note" type="text" placeholder="Optional" />
+            </label>
+            <button class="btn btn-primary" type="submit">Add transaction</button>
+          </form>
+          <p class="status-line" id="transaction-status">Transactions change your owned-share balance. Vesting progress is unaffected.</p>
+        </section>
+
+        <section class="card" aria-label="Transaction timeline">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>Transaction timeline</h2>
+              <p>Every event in date order. Compare “Owned after” against Shareworks to find where a discrepancy starts.</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table ledger-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Event type</th>
+                  <th class="num">Gross shares</th>
+                  <th class="num">Withheld</th>
+                  <th class="num">Net shares</th>
+                  <th class="num">Cash</th>
+                  <th class="num">Gross vested</th>
+                  <th class="num">Owned after</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="ledger-table"></tbody>
+            </table>
+          </div>
+        </section>
       </div>
 
       <div class="tab-panel" id="income-panel" role="tabpanel" aria-labelledby="income-tab" hidden>
@@ -496,6 +590,10 @@
         <label class="field">
           <span class="field-label">Tranches</span>
           <input data-field="installments" type="number" min="1" step="1" placeholder="16" />
+        </label>
+        <label class="field field-check">
+          <span class="field-label">Vests in full</span>
+          <input data-field="vestsImmediately" type="checkbox" />
         </label>
         <p class="grant-derived" data-role="first-vest"></p>
         <button class="btn btn-ghost btn-remove" type="button" data-action="remove">Remove</button>
