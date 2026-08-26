@@ -411,25 +411,20 @@ function toGrantOverrideKey(grantId, vestNumber) {
   return `${grantId}:${vestNumber}`;
 }
 
+// Vesting agreements floor the cumulative vested total at each tranche, so fractional remainders roll forward
+// rather than being handed to whichever tranche has the largest remainder.
 function distributeWholeShares(entries, sharesToDistribute) {
   const targetTotal = parseWholeShareAmount(sharesToDistribute);
-  const calculatedTotal = entries.reduce((sum, entry) => sum + entry.calculatedAmount, 0);
+  const ordered = [...entries].sort((a, b) => a.trancheNumber - b.trancheNumber);
 
-  if (entries.length === 0 || calculatedTotal <= 0) return;
+  if (ordered.length === 0) return;
 
-  const allocations = entries.map((entry) => {
-    const rawAmount = targetTotal * (entry.calculatedAmount / calculatedTotal);
-    const amount = Math.floor(rawAmount);
-    return { entry, amount, remainder: rawAmount - amount };
+  let previousCumulative = 0;
+  ordered.forEach((entry, index) => {
+    const cumulative = Math.floor((targetTotal * (index + 1)) / ordered.length);
+    entry.amount = cumulative - previousCumulative;
+    previousCumulative = cumulative;
   });
-  let unitsRemaining = targetTotal - allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
-
-  allocations
-    .sort((a, b) => b.remainder - a.remainder || a.entry.date - b.entry.date)
-    .forEach((allocation) => {
-      allocation.entry.amount = allocation.amount + (unitsRemaining > 0 ? 1 : 0);
-      unitsRemaining -= unitsRemaining > 0 ? 1 : 0;
-    });
 }
 
 function startOfToday() {
@@ -581,7 +576,11 @@ function getAdjustedSchedule(schedule) {
     row.netUnits = row.isRecorded ? row.actual.netUnits : null;
     row.vestPrice = row.actual && row.actual.price !== null ? row.actual.price : null;
     row.withheldUnits = row.isRecorded ? Math.max(row.total - row.netUnits, 0) : null;
-    row.receivedValue = row.isRecorded && row.vestPrice !== null ? row.netUnits * row.vestPrice : null;
+
+    const hasValues = row.isRecorded && row.vestPrice !== null;
+    row.grossVestValue = hasValues ? row.total * row.vestPrice : null;
+    row.withheldValue = hasValues ? row.withheldUnits * row.vestPrice : null;
+    row.receivedValue = hasValues ? row.netUnits * row.vestPrice : null;
   });
 
   return adjustedSchedule;
@@ -1801,15 +1800,23 @@ function renderSchedule() {
             <strong class="figure-value">${formatShares(row.total)}</strong>
           </div>
           <div class="figure figure-positive">
-            <span class="figure-label">Net received</span>
+            <span class="figure-label">Net units received</span>
             <strong class="figure-value">${formatShares(row.netUnits)}</strong>
           </div>
           <div class="figure figure-muted">
-            <span class="figure-label">Withheld for tax</span>
+            <span class="figure-label">Shares withheld</span>
             <strong class="figure-value">${formatShares(row.withheldUnits)}</strong>
           </div>
           <div class="figure">
-            <span class="figure-label">Value at vest</span>
+            <span class="figure-label">Gross vest value</span>
+            <strong class="figure-value">${row.grossVestValue === null ? '—' : formatCurrency(row.grossVestValue)}</strong>
+          </div>
+          <div class="figure figure-warning">
+            <span class="figure-label">Withholding value</span>
+            <strong class="figure-value">${row.withheldValue === null ? '—' : formatCurrency(row.withheldValue)}</strong>
+          </div>
+          <div class="figure figure-positive">
+            <span class="figure-label">Net value received</span>
             <strong class="figure-value">${row.receivedValue === null ? '—' : formatCurrency(row.receivedValue)}</strong>
           </div>
           <div class="figure figure-muted">
@@ -1891,7 +1898,7 @@ function renderSchedule() {
                 </span>
                 <span class="source-muted">Tranche ${tranche.trancheNumber}/${tranche.installments}</span>
                 <span class="source-muted">
-                  ${formatShares(tranche.calculatedAmount)} scheduled
+                  ${formatShares(tranche.amount)} scheduled
                   ${tranche.isCaughtUp ? `<br><span class="source-catchup">from ${formatDate(tranche.scheduledDate)}</span>` : ''}
                 </span>
                 <label class="field">
@@ -1903,7 +1910,7 @@ function renderSchedule() {
                     type="number"
                     step="1"
                     min="0"
-                    placeholder="${formatShares(tranche.calculatedAmount)}"
+                    placeholder="${formatShares(tranche.amount)}"
                     value="${escapeHtml(String(grantGrossOverrides[toGrantOverrideKey(tranche.id, tranche.trancheNumber)] ?? ''))}"
                   />
                 </label>

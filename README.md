@@ -84,6 +84,27 @@ Each period in the schedule is one of:
 
 Only recorded periods count toward "net units held" — everything else is still counted as remaining gross. That keeps projections honest instead of guessing a withholding rate.
 
+Once both actuals are entered, the event derives the tax side:
+
+```
+shares withheld    = corrected gross units - net units received
+gross vest value   = corrected gross units x share price at vest
+withholding value  = shares withheld       x share price at vest
+net value received = net units received    x share price at vest
+```
+
+Withheld shares never reduce vesting progress — progress is measured in gross units vested.
+
+## Share rounding
+
+Tranche sizes floor the *cumulative* vested total rather than rounding each tranche independently:
+
+```
+tranche n = floor(total x n / installments) - floor(total x (n-1) / installments)
+```
+
+For a 4,312-share grant over 16 tranches that gives 269 then 270, so a two-tranche catch-up event is **539** shares. Rounding each tranche independently would front-load the remainder and produce 540. The tranche amounts always sum back to the grant total exactly.
+
 Earlier versions estimated post-tax units with a fixed 41.5% rate. Any saved post-tax corrections from that model are migrated automatically into recorded net units on first load.
 
 ## Seed data
