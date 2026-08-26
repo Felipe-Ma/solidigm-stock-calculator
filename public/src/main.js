@@ -2045,20 +2045,20 @@ function renderSchedule() {
   const schedule = getAdjustedSchedule(getSchedule());
   const today = startOfToday();
 
+  // Owned, vested, and unvested totals come from the ledger so both tabs report identical figures.
+  const summary = getLedgerSummary(getLedger());
   const totalGrossShares = schedule.reduce((sum, row) => sum + row.total, 0);
-  const heldNetUnits = schedule.reduce((sum, row) => sum + (row.isRecorded ? row.netUnits : 0), 0);
   const realizedTotal = schedule.reduce((sum, row) => sum + (row.receivedValue ?? 0), 0);
-  const remainingGrossUnits = schedule.reduce((sum, row) => sum + (row.isRecorded ? 0 : row.total), 0);
   const nextRow = schedule.find((row) => !row.isRecorded && row.date > today) || null;
   const dueRow = schedule.find((row) => !row.isRecorded && row.date <= today) || null;
 
   grandTotal.textContent = formatShares(totalGrossShares);
-  totalValue.textContent = formatCurrency((heldNetUnits + remainingGrossUnits) * stockPrice);
-  heldUnits.textContent = formatShares(heldNetUnits);
-  heldValue.textContent = `${formatCurrency(heldNetUnits * stockPrice)} at today's price`;
+  totalValue.textContent = formatCurrency(summary.owned * stockPrice);
+  heldUnits.textContent = formatShares(summary.owned);
+  heldValue.textContent = `${formatCurrency(summary.owned * stockPrice)} at today's price`;
   realizedValue.textContent = formatCurrency(realizedTotal);
-  futureUnits.textContent = formatShares(remainingGrossUnits);
-  futureValue.textContent = `${formatCurrency(remainingGrossUnits * stockPrice)} at today's price`;
+  futureUnits.textContent = formatShares(summary.unvested);
+  futureValue.textContent = `${formatShares(summary.grossVested)} gross vested so far`;
   nextVestValue.textContent = nextRow ? formatShares(nextRow.total) : '—';
   nextVestCaption.textContent = nextRow ? `Next vest · ${formatDate(nextRow.date)}` : 'Next vest';
 
