@@ -1855,6 +1855,7 @@ function getLedger() {
       missingActuals: hasVested && !row.isRecorded,
       netExceedsGross: row.isRecorded && row.netUnits > row.total + 0.0001,
       vestDateKey,
+      actualsKey: row.actualsKey,
     });
 
     if (settlesLater && row.isRecorded) {
@@ -1872,6 +1873,7 @@ function getLedger() {
         isFuture: settlementDate > today,
         missingActuals: false,
         vestDateKey,
+        actualsKey: row.actualsKey,
       });
     }
   });
@@ -2070,11 +2072,16 @@ function renderSchedule() {
   const today = startOfToday();
 
   // Owned, vested, and unvested totals come from the ledger so both tabs report identical figures.
-  const summary = getLedgerSummary(getLedger());
+  const ledger = getLedger();
+  const summary = getLedgerSummary(ledger);
+  // Settlement rows sort after their vest row, so the last write per key is the balance once shares landed.
+  const ownedByEvent = new Map();
+  ledger.forEach((event) => {
+    if (event.actualsKey) ownedByEvent.set(event.actualsKey, event.ownedAfter);
+  });
   const totalGrossShares = schedule.reduce((sum, row) => sum + row.total, 0);
   const realizedTotal = schedule.reduce((sum, row) => sum + (row.receivedValue ?? 0), 0);
   const nextRow = schedule.find((row) => !row.isRecorded && row.date > today) || null;
-  const dueRow = schedule.find((row) => !row.isRecorded && row.date <= today) || null;
 
   grandTotal.textContent = formatShares(totalGrossShares);
   totalValue.textContent = formatCurrency(summary.owned * stockPrice);
@@ -2119,7 +2126,6 @@ function renderSchedule() {
     scheduleGrid.append(warning);
   }
 
-  const dueDateKey = dueRow ? dueRow.actualsKey : null;
   const nextDateKey = nextRow ? nextRow.actualsKey : null;
 
   // Projections never touch the real owned balance; they run forward from it for unvested events only.
@@ -2143,15 +2149,16 @@ function renderSchedule() {
   list.innerHTML = schedule.map((row, index) => {
     const dateKey = toDateKey(row.date);
     const actualsKey = row.actualsKey;
-    const isDue = actualsKey === dueDateKey;
     const isNext = actualsKey === nextDateKey;
     const canRecord = row.date <= today || row.isRecorded;
     const projection = projections.get(actualsKey);
+    // Every past vest without actuals needs flagging, not just the earliest one.
+    const isAwaiting = !row.isRecorded && row.date <= today;
 
-    const state = row.isRecorded ? 'is-recorded' : isDue ? 'is-due' : isNext ? 'is-next' : '';
+    const state = row.isRecorded ? 'is-recorded' : isAwaiting ? 'is-due' : isNext ? 'is-next' : '';
     const badge = row.isRecorded
       ? '<span class="badge badge-recorded">Recorded</span>'
-      : isDue
+      : isAwaiting
         ? '<span class="badge badge-due">Awaiting actuals</span>'
         : isNext
           ? '<span class="badge badge-next">Next</span>'
@@ -2187,6 +2194,10 @@ function renderSchedule() {
             <span class="figure-label">Worth today</span>
             <strong class="figure-value">${formatCurrency(row.netUnits * stockPrice)}</strong>
           </div>
+          <div class="figure figure-balance">
+            <span class="figure-label">Shares owned after</span>
+            <strong class="figure-value">${formatShares(ownedByEvent.get(actualsKey) ?? 0)}</strong>
+          </div>
         `
       : `
           <div class="figure">
@@ -2218,6 +2229,10 @@ function renderSchedule() {
             <div class="figure figure-muted">
               <span class="figure-label">From</span>
               <strong class="figure-value">${row.tranches.length} tranche${row.tranches.length === 1 ? '' : 's'}</strong>
+            </div>
+            <div class="figure figure-balance">
+              <span class="figure-label">Shares owned after</span>
+              <strong class="figure-value">${formatShares(ownedByEvent.get(actualsKey) ?? 0)}</strong>
             </div>
           `}
         `;

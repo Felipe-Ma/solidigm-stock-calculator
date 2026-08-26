@@ -741,6 +741,15 @@ select {
   color: var(--warning);
 }
 
+.figure-balance {
+  padding-left: 12px;
+  border-left: 2px solid var(--border-strong);
+}
+
+.figure-balance .figure-value {
+  color: var(--accent);
+}
+
 .vest-actuals {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
