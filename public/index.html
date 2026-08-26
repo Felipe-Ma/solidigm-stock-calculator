@@ -91,9 +91,18 @@
           <div class="card-head">
             <div class="card-title">
               <h2>Vesting schedule</h2>
-              <p>One event can contain several tranches. Upcoming events show gross units only — when a vest lands, record what you actually received.</p>
+              <p>One event can contain several tranches. Upcoming events show gross units plus an estimated after-tax projection — estimates never change your real owned balance.</p>
             </div>
-            <button class="btn btn-ghost" type="button" id="reset-corrections">Clear all actuals</button>
+            <div class="card-actions">
+              <label class="field field-estimate">
+                <span class="field-label">Est. withholding</span>
+                <span class="input-affix">
+                  <input id="withholding-estimate" type="number" min="0" max="100" step="0.1" placeholder="41.3" />
+                  <span class="affix" aria-hidden="true">%</span>
+                </span>
+              </label>
+              <button class="btn btn-ghost" type="button" id="reset-corrections">Clear all actuals</button>
+            </div>
           </div>
           <div class="schedule-grid" id="schedule-grid"></div>
         </section>

@@ -84,6 +84,12 @@ Each period in the schedule is one of:
 
 Only recorded periods count toward "net units held" — everything else is still counted as remaining gross. That keeps projections honest instead of guessing a withholding rate.
 
+### Projections for upcoming vests
+
+Unvested events show gross RSUs and their gross value at today's price, plus an estimated after-tax view: estimated shares withheld, estimated net shares received, and a **projected** owned balance that runs forward from your real current balance.
+
+The estimate uses an editable withholding percentage (default 41.3%, matching historical net retention of ~58.7%). Projections are labelled as estimates and never alter the real "Shares owned today" figure — that only moves on recorded actuals and transactions.
+
 Once both actuals are entered, the event derives the tax side:
 
 ```

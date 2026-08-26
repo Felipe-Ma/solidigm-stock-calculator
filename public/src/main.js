@@ -19,6 +19,9 @@ const TRANSACTION_TYPES = {
 const STOCK_PRICE_KEY = 'stockPrice';
 const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
 const VEST_ACTUALS_KEY = 'vestActuals';
+const WITHHOLDING_ESTIMATE_KEY = 'withholdingEstimate';
+// Historical net retention has run near 58.7%, so roughly 41.3% of gross is withheld.
+const DEFAULT_WITHHOLDING_ESTIMATE = '41.3';
 const TRANSACTIONS_KEY = 'shareTransactions';
 const APPLIED_SEEDS_KEY = 'appliedSeeds';
 const TAXABLE_INCOME_INPUT_KEY = 'taxableIncomeInput';
@@ -72,6 +75,7 @@ let saveTimer;
 let stockPrice = 0;
 let grantGrossOverrides = {};
 let vestActuals = {};
+let withholdingEstimate = DEFAULT_WITHHOLDING_ESTIMATE;
 let shareTransactions = [];
 let appliedSeeds = [];
 let taxableIncomeEntries = [];
@@ -96,6 +100,7 @@ const futureValue = document.querySelector('#future-value');
 const stockPriceInput = document.querySelector('#stock-price');
 const nextVestCaption = document.querySelector('#next-vest-caption');
 const realizedValue = document.querySelector('#realized-value');
+const withholdingEstimateInput = document.querySelector('#withholding-estimate');
 const ledgerOwned = document.querySelector('#ledger-owned');
 const ledgerOwnedValue = document.querySelector('#ledger-owned-value');
 const ledgerUnvested = document.querySelector('#ledger-unvested');
@@ -293,6 +298,12 @@ function saveVestActuals() {
   writeMetadata(VEST_ACTUALS_KEY, vestActuals).catch(() => {
     databaseStatus.textContent = 'Could not cache recorded vest on this device.';
   });
+}
+
+function saveWithholdingEstimate() {
+  syncToCloud();
+  if (!database) return;
+  writeMetadata(WITHHOLDING_ESTIMATE_KEY, withholdingEstimate).catch(() => {});
 }
 
 function saveShareTransactions() {
@@ -857,6 +868,7 @@ function getAppStateData() {
     grants: sanitizeSavedGrants(grants),
     grantGrossOverrides,
     vestActuals,
+    withholdingEstimate,
     shareTransactions: sanitizeSavedTransactions(shareTransactions),
     appliedSeeds,
     incomeBaselines,
@@ -2041,6 +2053,18 @@ function updateTransactionPriceLabel() {
   transactionPriceInput.required = info.requiresPrice;
 }
 
+function getWithholdingEstimateRate() {
+  const percent = parseCurrencyAmount(withholdingEstimate);
+  const clamped = Math.min(Math.max(Number.isFinite(percent) ? percent : 0, 0), 100);
+  return clamped / 100;
+}
+
+function updateWithholdingEstimate(value) {
+  withholdingEstimate = String(value);
+  renderSchedule();
+  saveWithholdingEstimate();
+}
+
 function renderSchedule() {
   const schedule = getAdjustedSchedule(getSchedule());
   const today = startOfToday();
@@ -2098,6 +2122,22 @@ function renderSchedule() {
   const dueDateKey = dueRow ? dueRow.actualsKey : null;
   const nextDateKey = nextRow ? nextRow.actualsKey : null;
 
+  // Projections never touch the real owned balance; they run forward from it for unvested events only.
+  const estimateRate = getWithholdingEstimateRate();
+  const estimatePercent = Math.round(estimateRate * 1000) / 10;
+  const projections = new Map();
+  let projectedOwned = summary.owned;
+  schedule.forEach((row) => {
+    if (row.isRecorded || row.date <= today) return;
+    const estimatedNet = Math.round(row.total * (1 - estimateRate));
+    projectedOwned += estimatedNet;
+    projections.set(row.actualsKey, {
+      estimatedNet,
+      estimatedWithheld: row.total - estimatedNet,
+      projectedOwned,
+    });
+  });
+
   const list = document.createElement('div');
   list.className = 'schedule-grid';
   list.innerHTML = schedule.map((row, index) => {
@@ -2106,6 +2146,7 @@ function renderSchedule() {
     const isDue = actualsKey === dueDateKey;
     const isNext = actualsKey === nextDateKey;
     const canRecord = row.date <= today || row.isRecorded;
+    const projection = projections.get(actualsKey);
 
     const state = row.isRecorded ? 'is-recorded' : isDue ? 'is-due' : isNext ? 'is-next' : '';
     const badge = row.isRecorded
@@ -2149,17 +2190,36 @@ function renderSchedule() {
         `
       : `
           <div class="figure">
-            <span class="figure-label">Gross units</span>
+            <span class="figure-label">Gross RSUs</span>
             <strong class="figure-value">${formatShares(row.total)}</strong>
           </div>
           <div class="figure figure-muted">
             <span class="figure-label">Gross value today</span>
             <strong class="figure-value">${formatCurrency(row.total * stockPrice)}</strong>
           </div>
-          <div class="figure figure-muted">
-            <span class="figure-label">From</span>
-            <strong class="figure-value">${row.tranches.length} tranche${row.tranches.length === 1 ? '' : 's'}</strong>
-          </div>
+          ${projection ? `
+            <div class="figure figure-estimate">
+              <span class="figure-label">Est. shares withheld</span>
+              <strong class="figure-value">${formatShares(projection.estimatedWithheld)}</strong>
+            </div>
+            <div class="figure figure-estimate">
+              <span class="figure-label">Est. net shares received</span>
+              <strong class="figure-value">${formatShares(projection.estimatedNet)}</strong>
+            </div>
+            <div class="figure figure-estimate">
+              <span class="figure-label">Projected shares owned</span>
+              <strong class="figure-value">${formatShares(projection.projectedOwned)}</strong>
+            </div>
+            <div class="figure figure-estimate">
+              <span class="figure-label">Projected owned value</span>
+              <strong class="figure-value">${formatCurrency(projection.projectedOwned * stockPrice)}</strong>
+            </div>
+          ` : `
+            <div class="figure figure-muted">
+              <span class="figure-label">From</span>
+              <strong class="figure-value">${row.tranches.length} tranche${row.tranches.length === 1 ? '' : 's'}</strong>
+            </div>
+          `}
         `;
 
     const actualsBlock = canRecord
@@ -2211,6 +2271,7 @@ function renderSchedule() {
             <time datetime="${dateKey}">${formatDate(row.date)}</time>
             <span class="tranche-chip">${describeEventTranches(row)}</span>
             ${row.tranches.some((tranche) => tranche.isCaughtUp) ? '<span class="badge badge-catchup">Catch-up</span>' : ''}
+            ${projection ? `<span class="badge badge-estimate">Estimated at ${estimatePercent}% withholding</span>` : ''}
           </div>
           ${badge}
         </div>
@@ -2502,6 +2563,7 @@ async function initializeApp() {
   const savedStockPrice = cloudState ? cloudState.stockPrice : await readMetadata(STOCK_PRICE_KEY);
   const savedGrantGrossOverrides = cloudState ? cloudState.grantGrossOverrides : await readMetadata(GRANT_GROSS_OVERRIDES_KEY);
   const savedVestActuals = cloudState ? cloudState.vestActuals : await readMetadata(VEST_ACTUALS_KEY);
+  const savedWithholdingEstimate = cloudState ? cloudState.withholdingEstimate : await readMetadata(WITHHOLDING_ESTIMATE_KEY);
   const savedTransactions = cloudState ? cloudState.shareTransactions : await readMetadata(TRANSACTIONS_KEY);
   const savedSeeds = cloudState ? cloudState.appliedSeeds : await readMetadata(APPLIED_SEEDS_KEY);
   const legacyNetOverrides = cloudState ? cloudState.netUnitOverrides : await readMetadata('netUnitOverrides');
@@ -2572,6 +2634,10 @@ async function initializeApp() {
   retirementBaselineJ2Input.value = retirementBaselines.J2 || '';
   retirementContributionEntries = [...codeRetirementEntries, ...browserOnlyRetirementEntries];
   stockPriceInput.value = stockPrice || '';
+  withholdingEstimate = savedWithholdingEstimate === undefined || savedWithholdingEstimate === null || savedWithholdingEstimate === ''
+    ? DEFAULT_WITHHOLDING_ESTIMATE
+    : String(savedWithholdingEstimate);
+  withholdingEstimateInput.value = withholdingEstimate;
 
   const repoGrants = sanitizeSavedGrants(codeAppStateData?.grants || []);
   const browserGrants = sanitizeSavedGrants(cloudState ? cloudState.grants || [] : await readGrants());
@@ -2643,6 +2709,7 @@ copyAppStateJsonButton.addEventListener('click', () => {
 downloadAppStateJsonButton.addEventListener('click', downloadAppStateJson);
 resetCorrectionsButton.addEventListener('click', resetManualCorrections);
 stockPriceInput.addEventListener('input', (event) => updateStockPrice(event.target.value));
+withholdingEstimateInput.addEventListener('input', (event) => updateWithholdingEstimate(event.target.value));
 taxableIncomeInputField.addEventListener('input', (event) => updateTaxableIncomeDraft(event.target.value));
 retirementInputField.addEventListener('input', (event) => updateRetirementDraft(event.target.value));
 incomeEntryForm.addEventListener('submit', addTaxableIncomeEntry);

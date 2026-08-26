@@ -666,6 +666,29 @@ select {
   color: #a78bfa;
 }
 
+.badge-estimate {
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.figure-estimate .figure-value {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.card-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.field-estimate {
+  width: 130px;
+}
+
 .tranche-chip {
   font-size: 11.5px;
   font-weight: 600;
