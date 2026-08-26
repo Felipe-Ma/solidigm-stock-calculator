@@ -2430,6 +2430,70 @@ function applyCorporateEvents2026Seed() {
   return true;
 }
 
+// Grant records from the signed award agreements. Matched by exact name so re-seeding updates in place.
+const SIGNED_GRANTS_SEED = 'signed-grant-totals';
+const SIGNED_GRANTS = [
+  {
+    id: 'grant-lti-rsu-2022',
+    label: '2025-04-30 LTI RSU-2022',
+    category: 'LTI',
+    shares: '4344',
+    grantDate: '2025-04-30',
+    vestingStartDate: '2025-04-30',
+    installments: '16',
+    vestsImmediately: false,
+  },
+  {
+    id: 'grant-nh-rsu-2t-accel-2022',
+    label: '2025-04-30 NH RSU 2T Accel-2022',
+    category: 'NH',
+    shares: '4310',
+    grantDate: '2025-04-30',
+    vestingStartDate: '2024-10-30',
+    installments: '16',
+    vestsImmediately: false,
+  },
+  {
+    id: 'grant-lti-rsu-2026',
+    label: '2026-04-30 LTI RSU-2026',
+    category: 'LTI',
+    shares: '2157',
+    grantDate: '2026-04-30',
+    vestingStartDate: '2026-04-30',
+    installments: '16',
+    vestsImmediately: false,
+  },
+  {
+    id: 'grant-special-rsu-2026',
+    label: '2026-04-30 Special RSU-2026',
+    category: 'Special',
+    shares: '457',
+    grantDate: '2026-04-30',
+    vestingStartDate: '',
+    installments: '1',
+    vestsImmediately: true,
+  },
+];
+
+function applySignedGrantsSeed() {
+  if (appliedSeeds.includes(SIGNED_GRANTS_SEED)) return false;
+
+  let next = [...grants];
+  SIGNED_GRANTS.forEach((spec) => {
+    const index = next.findIndex((grant) => String(grant.label || '').trim() === spec.label);
+    if (index === -1) {
+      next.push({ ...spec });
+      return;
+    }
+    // Keep the existing id so recorded actuals keyed to this grant still resolve.
+    next[index] = { ...next[index], ...spec, id: next[index].id };
+  });
+
+  grants = sanitizeSavedGrants(next);
+  appliedSeeds = [...appliedSeeds, SIGNED_GRANTS_SEED];
+  return true;
+}
+
 async function initializeApp() {
   database = await openDatabase();
   const cloud = await loadCloudState();
@@ -2534,7 +2598,8 @@ async function initializeApp() {
   shareTransactions = sanitizeSavedTransactions(savedTransactions || codeAppStateData?.shareTransactions || []);
   appliedSeeds = Array.isArray(savedSeeds) ? savedSeeds : (codeAppStateData?.appliedSeeds || []);
   const seeded = applyCorporateEvents2026Seed();
-  if (seeded) {
+  const grantsSeeded = applySignedGrantsSeed();
+  if (seeded || grantsSeeded) {
     await saveGrantsNow();
     await writeMetadata(TRANSACTIONS_KEY, shareTransactions).catch(() => {});
     await writeMetadata(VEST_ACTUALS_KEY, vestActuals).catch(() => {});
@@ -2550,11 +2615,12 @@ async function initializeApp() {
 
   if (cloud.available) {
     cloudSyncReady = true;
-    if (cloudState && !seeded) {
+    const didSeed = seeded || grantsSeeded;
+    if (cloudState && !didSeed) {
       cloudStatus.textContent = `Synced with your Cloudflare account${cloud.email ? ` as ${cloud.email}` : ''}.`;
     } else {
-      cloudStatus.textContent = seeded
-        ? 'Added the 2026 corporate events and syncing\u2026'
+      cloudStatus.textContent = didSeed
+        ? 'Applied signed grant records and syncing\u2026'
         : 'Uploading this device\u2019s data to your Cloudflare account\u2026';
       queueCloudSave(getAppStateData());
     }
