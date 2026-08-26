@@ -4,10 +4,11 @@ const DATABASE_NAME = 'solidigm-stock-calculator';
 const DATABASE_VERSION = 2;
 const GRANT_STORE = 'grants';
 const METADATA_STORE = 'metadata';
-const QUARTERS_IN_LTI_PLAN = 16;
-// The LTI plan vests on fixed calendar dates: Jan 30, Apr 30, Jul 30, Oct 30.
+const DEFAULT_INSTALLMENTS = 16;
+// The plan vests on fixed calendar dates: Jan 30, Apr 30, Jul 30, Oct 30.
 const LTI_VEST_MONTHS = [0, 3, 6, 9];
 const LTI_VEST_DAY = 30;
+const GRANT_CATEGORIES = ['LTI', 'NH', 'Other'];
 const STOCK_PRICE_KEY = 'stockPrice';
 const GRANT_GROSS_OVERRIDES_KEY = 'grantGrossOverrides';
 const VEST_ACTUALS_KEY = 'vestActuals';
@@ -25,8 +26,8 @@ const RETIREMENT_AUTOFILL_SOURCE = 'retirement-autofill';
 const RETIREMENT_OVERRIDE_SOURCE = 'retirement-override';
 
 const DEFAULT_GRANTS = [
-  { id: crypto.randomUUID(), label: 'Grant A', shares: '1200', vestingStartDate: '2025-01-30' },
-  { id: crypto.randomUUID(), label: 'Grant B', shares: '800', vestingStartDate: '2025-04-30' },
+  { id: crypto.randomUUID(), label: 'LTI 2025', category: 'LTI', shares: '1200', grantDate: '2025-04-30', vestingStartDate: '2025-04-30', installments: '16' },
+  { id: crypto.randomUUID(), label: 'New hire', category: 'NH', shares: '800', grantDate: '2025-04-30', vestingStartDate: '2024-10-30', installments: '16' },
 ];
 
 const PAYCHECK_SCHEDULE_2026 = [
@@ -451,10 +452,37 @@ function getFirstVestDate(vestingStartDate) {
   return null;
 }
 
-function getGrantVestDates(vestingStartDate) {
+function getGrantInstallments(grant) {
+  const count = Math.round(parseShareAmount(grant.installments));
+  return count > 0 ? count : DEFAULT_INSTALLMENTS;
+}
+
+// A tranche scheduled on or before the grant date could not have vested yet, so it catches up on the grant date.
+function getGrantTranches(grant) {
+  const shares = parseShareAmount(grant.shares);
+  const vestingStartDate = parseDate(grant.vestingStartDate);
+  const grantDate = parseDate(grant.grantDate);
+
+  if (!shares || shares <= 0 || !vestingStartDate) return [];
+
   const firstVestDate = getFirstVestDate(vestingStartDate);
   if (!firstVestDate) return [];
-  return Array.from({ length: QUARTERS_IN_LTI_PLAN }, (_, index) => addMonths(firstVestDate, index * 3));
+
+  const installments = getGrantInstallments(grant);
+  const sharesPerTranche = shares / installments;
+
+  return Array.from({ length: installments }, (_, index) => {
+    const scheduledDate = addMonths(firstVestDate, index * 3);
+    const isCaughtUp = Boolean(grantDate && scheduledDate <= grantDate);
+    return {
+      trancheNumber: index + 1,
+      installments,
+      scheduledDate,
+      vestDate: isCaughtUp ? grantDate : scheduledDate,
+      isCaughtUp,
+      amount: sharesPerTranche,
+    };
+  });
 }
 
 function getSchedule() {
@@ -462,28 +490,24 @@ function getSchedule() {
 
   grants.forEach((grant) => {
     const shares = parseShareAmount(grant.shares);
-    const vestingStartDate = parseDate(grant.vestingStartDate);
 
-    if (!shares || shares <= 0 || !vestingStartDate) return;
+    getGrantTranches(grant).forEach((tranche) => {
+      const key = toDateKey(tranche.vestDate);
+      if (!rowsByDate.has(key)) rowsByDate.set(key, { date: tranche.vestDate, total: 0, tranches: [] });
 
-    const vestDates = getGrantVestDates(vestingStartDate);
-    if (vestDates.length === 0) return;
-
-    const sharesPerQuarter = shares / QUARTERS_IN_LTI_PLAN;
-    vestDates.forEach((date, index) => {
-      const key = toDateKey(date);
-      if (!rowsByDate.has(key)) rowsByDate.set(key, { date, total: 0, grants: [] });
-
-      const vestNumber = index + 1;
       const row = rowsByDate.get(key);
-      row.total += sharesPerQuarter;
-      row.grants.push({
+      row.total += tranche.amount;
+      row.tranches.push({
         id: grant.id,
         label: grant.label || 'Untitled grant',
+        category: grant.category || '',
         totalShares: shares,
-        amount: sharesPerQuarter,
-        calculatedAmount: sharesPerQuarter,
-        vestNumber,
+        amount: tranche.amount,
+        calculatedAmount: tranche.amount,
+        trancheNumber: tranche.trancheNumber,
+        installments: tranche.installments,
+        scheduledDate: tranche.scheduledDate,
+        isCaughtUp: tranche.isCaughtUp,
       });
     });
   });
@@ -495,31 +519,32 @@ function getAdjustedSchedule(schedule) {
   const adjustedSchedule = schedule.map((row) => ({
     ...row,
     calculatedTotal: row.total,
-    grants: row.grants.map((grant) => ({ ...grant, calculatedAmount: grant.amount })),
+    tranches: row.tranches.map((tranche) => ({ ...tranche, calculatedAmount: tranche.amount })),
   }));
   const entriesByGrant = new Map();
 
   adjustedSchedule.forEach((row, rowIndex) => {
-    row.grants.forEach((grant, grantIndex) => {
-      const overrideKey = toGrantOverrideKey(grant.id, grant.vestNumber);
+    row.tranches.forEach((tranche, trancheIndex) => {
+      const overrideKey = toGrantOverrideKey(tranche.id, tranche.trancheNumber);
       const grossOverride = grantGrossOverrides[overrideKey];
       const hasGrossOverride = grossOverride !== undefined && grossOverride !== '';
       const entry = {
         date: row.date,
+        trancheNumber: tranche.trancheNumber,
         rowIndex,
-        grantIndex,
-        calculatedAmount: grant.calculatedAmount,
-        amount: hasGrossOverride ? parseWholeShareAmount(grossOverride) : grant.calculatedAmount,
+        trancheIndex,
+        calculatedAmount: tranche.calculatedAmount,
+        amount: hasGrossOverride ? parseWholeShareAmount(grossOverride) : tranche.calculatedAmount,
         isLocked: hasGrossOverride,
       };
 
-      if (!entriesByGrant.has(grant.id)) {
-        entriesByGrant.set(grant.id, {
-          totalShares: grant.totalShares,
+      if (!entriesByGrant.has(tranche.id)) {
+        entriesByGrant.set(tranche.id, {
+          totalShares: tranche.totalShares,
           entries: [],
         });
       }
-      entriesByGrant.get(grant.id).entries.push(entry);
+      entriesByGrant.get(tranche.id).entries.push(entry);
     });
   });
 
@@ -537,20 +562,20 @@ function getAdjustedSchedule(schedule) {
 
     let vestedToDate = 0;
     entries
-      .sort((a, b) => a.date - b.date)
+      .sort((a, b) => a.trancheNumber - b.trancheNumber)
       .forEach((entry) => {
         vestedToDate += entry.amount;
-        const grant = adjustedSchedule[entry.rowIndex].grants[entry.grantIndex];
-        grant.amount = entry.amount;
-        grant.vestedToDate = vestedToDate;
-        grant.remainingPercentage = totalShares > 0
+        const tranche = adjustedSchedule[entry.rowIndex].tranches[entry.trancheIndex];
+        tranche.amount = entry.amount;
+        tranche.vestedToDate = vestedToDate;
+        tranche.remainingPercentage = totalShares > 0
           ? Math.max(((totalShares - vestedToDate) / totalShares) * 100, 0)
           : 0;
       });
   });
 
   adjustedSchedule.forEach((row) => {
-    row.total = row.grants.reduce((sum, grant) => sum + grant.amount, 0);
+    row.total = row.tranches.reduce((sum, tranche) => sum + tranche.amount, 0);
     row.actual = getVestActual(toDateKey(row.date));
     row.isRecorded = Boolean(row.actual && row.actual.netUnits !== null);
     row.netUnits = row.isRecorded ? row.actual.netUnits : null;
@@ -729,11 +754,17 @@ function sanitizeSavedGrants(savedGrants) {
       const id = typeof grant.id === 'string' && grant.id ? grant.id : crypto.randomUUID();
       // Older saves called this firstVestDate, but it always held the vesting start date.
       const startDate = grant.vestingStartDate ?? grant.firstVestDate;
+      const category = GRANT_CATEGORIES.includes(grant.category) ? grant.category : '';
       return {
         id,
         label: String(grant.label || `Grant ${String.fromCharCode(65 + index)}`),
+        category,
         shares: grant.shares === undefined ? '' : String(grant.shares),
+        grantDate: grant.grantDate === undefined || grant.grantDate === null ? '' : String(grant.grantDate),
         vestingStartDate: startDate === undefined || startDate === null ? '' : String(startDate),
+        installments: grant.installments === undefined || grant.installments === null || grant.installments === ''
+          ? String(DEFAULT_INSTALLMENTS)
+          : String(grant.installments),
       };
     })
     .filter(Boolean);
@@ -1609,11 +1640,18 @@ function switchTab(targetPanelId) {
   });
 }
 
-function describeGrantVesting(vestingStartDate) {
-  const firstVestDate = getFirstVestDate(parseDate(vestingStartDate));
-  if (!firstVestDate) return 'Set a vesting start date to build the schedule.';
-  const lastVestDate = addMonths(firstVestDate, (QUARTERS_IN_LTI_PLAN - 1) * 3);
-  return `First vest ${formatDate(firstVestDate)} · through ${formatDate(lastVestDate)}`;
+function describeGrantVesting(grant) {
+  const tranches = getGrantTranches(grant);
+  if (tranches.length === 0) return 'Set shares and a vesting start date to build the schedule.';
+
+  const caughtUp = tranches.filter((tranche) => tranche.isCaughtUp);
+  const first = tranches[0];
+  const last = tranches[tranches.length - 1];
+  const catchUpNote = caughtUp.length > 0
+    ? ` · tranches ${formatTrancheRange(caughtUp.map((tranche) => tranche.trancheNumber))} caught up on the grant date`
+    : '';
+
+  return `First vest ${formatDate(first.vestDate)} · through ${formatDate(last.vestDate)}${catchUpNote}`;
 }
 
 function renderGrantInputs() {
@@ -1634,7 +1672,7 @@ function renderGrantInputs() {
     card.querySelector('[data-action="remove"]').setAttribute('aria-label', `Remove ${grant.label || 'grant'}`);
 
     const derived = card.querySelector('[data-role="first-vest"]');
-    derived.textContent = describeGrantVesting(grant.vestingStartDate);
+    derived.textContent = describeGrantVesting(grant);
 
     card.querySelectorAll('[data-field]').forEach((input) => {
       input.value = grant[input.dataset.field] || '';
@@ -1646,6 +1684,40 @@ function renderGrantInputs() {
     card.querySelector('[data-action="remove"]').addEventListener('click', () => removeGrant(grant.id));
     grantList.append(card);
   });
+}
+
+function formatTrancheRange(numbers) {
+  const sorted = [...numbers].sort((a, b) => a - b);
+  const parts = [];
+  let start = sorted[0];
+  let previous = sorted[0];
+
+  for (let index = 1; index <= sorted.length; index += 1) {
+    const current = sorted[index];
+    if (current !== previous + 1) {
+      parts.push(start === previous ? `${start}` : `${start}\u2013${previous}`);
+      start = current;
+    }
+    previous = current;
+  }
+
+  return parts.join(', ');
+}
+
+function describeEventTranches(row) {
+  const byGrant = new Map();
+  row.tranches.forEach((tranche) => {
+    if (!byGrant.has(tranche.id)) byGrant.set(tranche.id, { installments: tranche.installments, numbers: [] });
+    byGrant.get(tranche.id).numbers.push(tranche.trancheNumber);
+  });
+
+  if (byGrant.size === 1) {
+    const [{ installments, numbers }] = [...byGrant.values()];
+    const label = numbers.length === 1 ? 'Tranche' : 'Tranches';
+    return `${label} ${formatTrancheRange(numbers)} of ${installments}`;
+  }
+
+  return `${row.tranches.length} tranches from ${byGrant.size} grants`;
 }
 
 function renderSchedule() {
@@ -1674,7 +1746,7 @@ function renderSchedule() {
   if (schedule.length === 0) {
     const emptyState = document.createElement('p');
     emptyState.className = 'empty-state';
-    emptyState.textContent = 'Add a grant with shares and a first vest date to build the schedule.';
+    emptyState.textContent = 'Add a grant with shares and a vesting start date to build the schedule.';
     scheduleGrid.append(emptyState);
     return;
   }
@@ -1682,11 +1754,11 @@ function renderSchedule() {
   const overAllocatedGrants = [];
   const grantTotals = new Map();
   schedule.forEach((row) => {
-    row.grants.forEach((grant) => {
-      if (!grantTotals.has(grant.id)) {
-        grantTotals.set(grant.id, { label: grant.label, totalShares: grant.totalShares, scheduled: 0 });
+    row.tranches.forEach((tranche) => {
+      if (!grantTotals.has(tranche.id)) {
+        grantTotals.set(tranche.id, { label: tranche.label, totalShares: tranche.totalShares, scheduled: 0 });
       }
-      grantTotals.get(grant.id).scheduled += grant.amount;
+      grantTotals.get(tranche.id).scheduled += tranche.amount;
     });
   });
   grantTotals.forEach((info) => {
@@ -1756,7 +1828,7 @@ function renderSchedule() {
           </div>
           <div class="figure figure-muted">
             <span class="figure-label">From</span>
-            <strong class="figure-value">${row.grants.length} grant${row.grants.length === 1 ? '' : 's'}</strong>
+            <strong class="figure-value">${row.tranches.length} tranche${row.tranches.length === 1 ? '' : 's'}</strong>
           </div>
         `;
 
@@ -1796,8 +1868,10 @@ function renderSchedule() {
       <article class="vest-card ${state}">
         <div class="vest-head">
           <div class="vest-when">
-            <span class="vest-index">Period ${index + 1}</span>
+            <span class="vest-index">Event ${index + 1}</span>
             <time datetime="${dateKey}">${formatDate(row.date)}</time>
+            <span class="tranche-chip">${describeEventTranches(row)}</span>
+            ${row.tranches.some((tranche) => tranche.isCaughtUp) ? '<span class="badge badge-catchup">Catch-up</span>' : ''}
           </div>
           ${badge}
         </div>
@@ -1807,27 +1881,33 @@ function renderSchedule() {
         ${actualsBlock}
 
         <details class="vest-sources">
-          <summary>Grant breakdown</summary>
+          <summary>Tranche breakdown</summary>
           <div class="source-list">
-            ${row.grants.map((grant) => `
+            ${row.tranches.map((tranche) => `
               <div class="source-row">
-                <span class="source-name">${escapeHtml(grant.label)}</span>
-                <span class="source-muted">Vest ${grant.vestNumber}/${QUARTERS_IN_LTI_PLAN}</span>
-                <span class="source-muted">${formatShares(grant.calculatedAmount)} scheduled</span>
+                <span class="source-name">
+                  ${escapeHtml(tranche.label)}
+                  ${tranche.category ? `<span class="pill">${escapeHtml(tranche.category)}</span>` : ''}
+                </span>
+                <span class="source-muted">Tranche ${tranche.trancheNumber}/${tranche.installments}</span>
+                <span class="source-muted">
+                  ${formatShares(tranche.calculatedAmount)} scheduled
+                  ${tranche.isCaughtUp ? `<br><span class="source-catchup">from ${formatDate(tranche.scheduledDate)}</span>` : ''}
+                </span>
                 <label class="field">
                   <span class="field-label">Correct gross</span>
                   <input
                     data-action="correct-grant-gross"
-                    data-grant-id="${grant.id}"
-                    data-vest-number="${grant.vestNumber}"
+                    data-grant-id="${tranche.id}"
+                    data-vest-number="${tranche.trancheNumber}"
                     type="number"
                     step="1"
                     min="0"
-                    placeholder="${formatShares(grant.calculatedAmount)}"
-                    value="${escapeHtml(String(grantGrossOverrides[toGrantOverrideKey(grant.id, grant.vestNumber)] ?? ''))}"
+                    placeholder="${formatShares(tranche.calculatedAmount)}"
+                    value="${escapeHtml(String(grantGrossOverrides[toGrantOverrideKey(tranche.id, tranche.trancheNumber)] ?? ''))}"
                   />
                 </label>
-                <span class="source-muted">${formatShares(grant.remainingPercentage)}% left</span>
+                <span class="source-muted">${formatShares(tranche.remainingPercentage)}% left</span>
               </div>
             `).join('')}
           </div>
@@ -1842,10 +1922,9 @@ function renderSchedule() {
 function updateGrant(id, field, value) {
   grants = grants.map((grant) => (grant.id === id ? { ...grant, [field]: value } : grant));
 
-  if (field === 'vestingStartDate') {
-    const derived = grantList.querySelector(`.grant-card[data-id="${id}"] [data-role="first-vest"]`);
-    if (derived) derived.textContent = describeGrantVesting(value);
-  }
+  const updated = grants.find((grant) => grant.id === id);
+  const derived = grantList.querySelector(`.grant-card[data-id="${id}"] [data-role="first-vest"]`);
+  if (updated && derived) derived.textContent = describeGrantVesting(updated);
 
   renderSchedule();
   scheduleSave();
@@ -1860,8 +1939,33 @@ function updateGrantGrossOverride(grantId, vestNumber, value) {
     grantGrossOverrides[overrideKey] = value;
   }
 
-  renderSchedule();
+  renderSchedulePreservingFocus();
   saveGrantGrossOverrides();
+}
+
+// Re-rendering replaces the inputs, so wait for focus to settle then move it to the equivalent field.
+function renderSchedulePreservingFocus() {
+  requestAnimationFrame(() => {
+    const active = document.activeElement;
+    const dataset = active && active.dataset && active.dataset.action ? { ...active.dataset } : null;
+    const selectionStart = active && active.selectionStart !== undefined ? active.selectionStart : null;
+
+    renderSchedule();
+
+    if (!dataset) return;
+
+    const selector = ['action', 'dateKey', 'grantId', 'vestNumber']
+      .filter((key) => dataset[key] !== undefined)
+      .map((key) => `[data-${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}="${dataset[key]}"]`)
+      .join('');
+    const next = scheduleGrid.querySelector(selector);
+    if (!next) return;
+
+    next.focus();
+    if (selectionStart !== null && next.setSelectionRange && next.type !== 'number') {
+      next.setSelectionRange(selectionStart, selectionStart);
+    }
+  });
 }
 
 function updateVestActual(dateKey, field, value) {
@@ -1881,7 +1985,7 @@ function updateVestActual(dateKey, field, value) {
   }
 
   vestActuals = next;
-  renderSchedule();
+  renderSchedulePreservingFocus();
   saveVestActuals();
 }
 
@@ -1896,7 +2000,7 @@ function resetManualCorrections() {
 function addGrant() {
   grants = [
     ...grants,
-    { id: crypto.randomUUID(), label: `Grant ${String.fromCharCode(65 + grants.length)}`, shares: '', vestingStartDate: '' },
+    { id: crypto.randomUUID(), label: `Grant ${String.fromCharCode(65 + grants.length)}`, category: '', shares: '', grantDate: '', vestingStartDate: '', installments: String(DEFAULT_INSTALLMENTS) },
   ];
   renderGrantInputs();
   renderSchedule();

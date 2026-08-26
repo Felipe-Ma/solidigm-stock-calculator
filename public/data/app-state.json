@@ -1,19 +1,25 @@
 {
-  "version": 1,
+  "version": 2,
   "updatedAt": null,
   "stockPrice": 0,
   "grants": [
     {
       "id": "grant-a",
-      "label": "Grant A",
+      "label": "Example LTI",
+      "category": "LTI",
       "shares": "1200",
-      "vestingStartDate": "2025-01-30"
+      "grantDate": "2025-04-30",
+      "vestingStartDate": "2025-04-30",
+      "installments": "16"
     },
     {
       "id": "grant-b",
-      "label": "Grant B",
+      "label": "Example new hire",
+      "category": "NH",
       "shares": "800",
-      "vestingStartDate": "2025-04-30"
+      "grantDate": "2025-04-30",
+      "vestingStartDate": "2024-10-30",
+      "installments": "16"
     }
   ],
   "grantGrossOverrides": {},

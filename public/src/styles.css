@@ -545,7 +545,7 @@ select {
 
 .grant-card {
   display: grid;
-  grid-template-columns: 2fr 1fr 1.2fr auto;
+  grid-template-columns: 1.6fr 0.7fr 0.7fr 1fr 1fr 0.6fr auto;
   gap: 12px;
   align-items: end;
   background: var(--surface);
@@ -614,8 +614,9 @@ select {
 
 .vest-when {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .vest-index {
@@ -658,6 +659,26 @@ select {
 .badge-upcoming {
   background: var(--surface-hover);
   color: var(--text-faint);
+}
+
+.badge-catchup {
+  background: rgba(167, 139, 250, 0.16);
+  color: #a78bfa;
+}
+
+.tranche-chip {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.source-catchup {
+  color: #a78bfa;
 }
 
 .vest-figures {
@@ -760,6 +781,10 @@ select {
 
 .source-name {
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .source-row .field-label {

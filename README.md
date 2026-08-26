@@ -41,8 +41,8 @@ Preview URLs are disabled on purpose: the Access application protects only the p
 ## What it does now
 
 - Syncs all stock, taxable-income, and 401k data through your Cloudflare account so any device you sign in from sees the same values.
-- Lets you add stock grants with a name, total shares, and the **vesting start date** from your agreement.
-- Derives the vest schedule from the plan's fixed quarterly dates — Jan 30, Apr 30, Jul 30, Oct 30 — starting at the first such date strictly *after* the vesting start date, for 16 quarters.
+- Lets you add stock grants with a name, category, share count, grant date, vesting start date, and tranche count.
+- Derives vesting events from the plan's fixed quarterly dates, including grant-date catch-up for tranches that predate the grant.
 - Shows upcoming vests as **gross units only**. The app never estimates tax.
 - Lets you record what actually happened at each vest — net units received and the share price that day — and derives units withheld, value at vest, and what those units are worth today.
 - Rolls those actuals up into net units held, total received at vest, and remaining gross units.
@@ -51,19 +51,25 @@ Preview URLs are disabled on purpose: the Access application protects only the p
 
 ## How vesting dates are calculated
 
-The plan vests on four fixed calendar dates each year: **Jan 30, Apr 30, Jul 30, Oct 30**.
+Each grant carries a **grant date**, a **vesting start date**, a share count, and a tranche count (16 by default). Category (LTI / NH / Other) is a label only and never affects the calculation.
 
-You enter the **vesting start date** from your agreement. The first vest is the next plan date *strictly after* that date — the start date itself is excluded, even when it falls on a plan date. The schedule then runs 16 quarters.
+Tranches are generated from the **vesting start date** on the plan's fixed dates — **Jan 30, Apr 30, Jul 30, Oct 30** — beginning at the first such date strictly after the vesting start date.
+
+A tranche scheduled **on or before the grant date** could not have vested yet, so it catches up and vests on the grant date instead. Several catch-up tranches therefore collapse into a single vesting event.
 
 ```
-Vesting start 2025-04-30  ->  first vest 2025-07-30  (Apr 30 excluded)
-Vesting start 2025-10-29  ->  first vest 2025-10-30
-Vesting start 2025-12-31  ->  first vest 2026-01-30
+LTI  grant date 2025-04-30, vesting start 2025-04-30
+     -> tranche 1 vests 2025-07-30 (nothing to catch up)
+
+NH   grant date 2025-04-30, vesting start 2024-10-30
+     -> tranches 1 (2025-01-30) and 2 (2025-04-30) both catch up
+        and vest together on 2025-04-30
+     -> 2025-07-30 is therefore tranche 3 of 16
 ```
 
-Each grant card shows its derived first and last vest date so the result is verifiable without opening the schedule.
+A **vesting event** is one date; a **tranche** is one instalment of one grant. One event can hold several tranches, from one grant or several. The schedule labels events sequentially and shows the tranche makeup of each, with a *Catch-up* badge and the original scheduled date where relevant.
 
-Earlier versions asked for the first vest date directly and anchored the schedule on whatever was typed, which drifted off the plan calendar. Saved grants are migrated: the stored date is now read as the vesting start date.
+Each grant card shows its derived first and last vest date plus any catch-up, so the result is verifiable without opening the schedule.
 
 ## How vesting is recorded
 

@@ -79,7 +79,7 @@
           <div class="card-head">
             <div class="card-title">
               <h2>Grants</h2>
-              <p>Enter the vesting start date from your agreement. The plan vests on Jan 30, Apr 30, Jul 30, and Oct 30 — the first vest is the next of those dates <em>after</em> the start date, then 16 quarters total.</p>
+              <p>Vesting runs from the vesting start date on the plan dates Jan 30, Apr 30, Jul 30, and Oct 30. Any tranche scheduled on or before the grant date is caught up and vests on the grant date instead. Category is a label only — it never changes the maths.</p>
             </div>
             <button class="btn btn-primary" type="button" id="add-grant">Add grant</button>
           </div>
@@ -90,7 +90,7 @@
           <div class="card-head">
             <div class="card-title">
               <h2>Vesting schedule</h2>
-              <p>Upcoming periods show gross units only. When a vest lands, record what you actually received.</p>
+              <p>One event can contain several tranches. Upcoming events show gross units only — when a vest lands, record what you actually received.</p>
             </div>
             <button class="btn btn-ghost" type="button" id="reset-corrections">Clear all actuals</button>
           </div>
@@ -473,12 +473,29 @@
           <input data-field="label" placeholder="Grant name" />
         </label>
         <label class="field">
+          <span class="field-label">Category</span>
+          <select data-field="category">
+            <option value="">—</option>
+            <option value="LTI">LTI</option>
+            <option value="NH">NH</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label class="field">
           <span class="field-label">Shares</span>
           <input data-field="shares" type="number" min="0" placeholder="1000" />
         </label>
         <label class="field">
+          <span class="field-label">Grant date</span>
+          <input data-field="grantDate" type="date" />
+        </label>
+        <label class="field">
           <span class="field-label">Vesting start date</span>
           <input data-field="vestingStartDate" type="date" />
+        </label>
+        <label class="field">
+          <span class="field-label">Tranches</span>
+          <input data-field="installments" type="number" min="1" step="1" placeholder="16" />
         </label>
         <p class="grant-derived" data-role="first-vest"></p>
         <button class="btn btn-ghost btn-remove" type="button" data-action="remove">Remove</button>
